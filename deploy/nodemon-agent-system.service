@@ -1,0 +1,19 @@
+# Manual template: administrator must create account and /opt/nodemon first.
+[Unit]
+Description=NodeMonitor read-only metrics agent
+After=network.target
+
+[Service]
+Type=simple
+User=nodemon
+Group=nodemon
+WorkingDirectory=/opt/nodemon
+ExecStart=/opt/nodemon/nodemon-agent --listen 127.0.0.1:9274 --token-file /opt/nodemon/data/agent.token
+Restart=on-failure
+RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

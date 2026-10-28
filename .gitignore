@@ -1,0 +1,17 @@
+.build/
+.cache/
+.tools/
+build/
+dist/
+data/
+.DS_Store
+._*
+*.xcodeproj/
+# Local deployment details and historical screenshots are not part of the public release.
+/docs/本次实机部署.md
+/docs/验收记录.md
+/docs/screenshots/01-live-dashboard.png
+/docs/screenshots/02-live-widget.png
+/docs/screenshots/03-live-compact-widget.png
+/docs/screenshots/04-popover-before.png
+/docs/screenshots/05-popover-after.png
