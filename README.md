@@ -16,6 +16,12 @@ Mac 客户端使用 SwiftUI / AppKit；服务器采集端使用 Go。采集端�
 
 截图展示的是实际界面，传感器和设备数量会因服务器而异。
 
+连接方式可以选择局域网或远程连接（示例地址与令牌）：
+
+| 局域网连接 | Tailscale 远程连接 |
+| --- | --- |
+| ![局域网连接示例](docs/screenshots/lan-connection-preview.png) | ![远程连接示例](docs/screenshots/remote-connection-preview.png) |
+
 ## 主要功能
 
 - 菜单栏与挂件按物理 CPU 和显卡分别显示使用率、温度；显卡还分别显示显存。
@@ -24,6 +30,7 @@ Mac 客户端使用 SwiftUI / AppKit；服务器采集端使用 Go。采集端�
 - 多台服务器共用客户端连接缓存；断线后保留旧数据并标记状态。
 - 基础指标默认每 5 秒采集，GPU 默认每 15 秒采集；界面全部隐藏时客户端降低轮询频率。
 - 采集 API 只读，使用访问令牌认证，支持 TLS；远程连接也可使用 SSH 隧道。
+- 内置 Tailscale 私有网络，Mac 与 Linux 采集端各自登录授权后即可异网连接，无需另外安装 Tailscale 客户端。
 
 CPU 插槽使用 Linux 拓扑识别；可对应的温度来自传感器。NVIDIA 数据来自 `nvidia-smi`。系统或驱动未提供的数据会显示为 `—`，不会当作零值。
 
@@ -38,7 +45,11 @@ CPU 插槽使用 Linux 拓扑识别；可对应的温度来自传感器。NVIDIA
 
 解压 Mac 包后保留整个文件夹，双击其中的 `build/节点监控.app`；不要单独移走应用，因为同级项目标记用于定位配置和数据。首次使用可选择模拟演示，或在服务器运行采集端后添加主机。详细步骤见 [部署与使用](docs/部署与使用.md)。
 
-Linux 采集端可在独立目录以普通用户运行。默认监听本机；跨网络连接推荐 SSH 隧道或 HTTPS。仅在可信局域网显式启用明文连接，不要将明文端口直接暴露到互联网。
+Linux 采集端可在独立目录以普通用户运行。默认监听本机；跨网络可选择内置 Tailscale、SSH 隧道或 HTTPS。仅在可信局域网显式启用明文连接，不要将明文端口直接暴露到互联网。
+
+服务器没有公网 IP 时，可使用内置 Tailscale 私有网络。Mac 可手动选择局域网直连或远程连接，并分别保存地址；远程监控需要两端在同一私有网络内授权。具体步骤见 [Tailscale 远程连接](docs/Tailscale远程连接.md)。
+
+内置远程连接目前包含在源码和本机构建中，原有的 v0.1.0 发行包尚未包含这项更新。已在 Ubuntu 服务器和切换到手机热点的 Mac 之间验证实时监控，实际连接受各自网络和访问规则影响。
 
 发行包不包含服务器连接信息、令牌或历史数据。应用为临时签名版本，**尚未经过 Apple Developer ID 签名和公证**，macOS 可能提示无法验证开发者，使用前需要按系统提示确认。
 
@@ -53,13 +64,15 @@ Linux 采集端可在独立目录以普通用户运行。默认监听本机；�
 
 ## 从源码构建
 
-需要 Apple Silicon Mac、macOS 14+、Swift 6 和 macOS SDK。构建脚本在项目目录内准备工具与缓存；未安装 Go 时会下载固定版本的官方 Go 工具链并校验 SHA-256。
+需要 Apple Silicon Mac、macOS 14+、Swift 6 和 macOS SDK。构建脚本在项目目录内准备工具与缓存；未安装 Go 时会下载固定版本的官方 Go 工具链并校验 SHA-256。首次构建需要允许下载 Go 模块：
 
 ```bash
-bash scripts/build.sh
+NODEMON_GOPROXY=https://proxy.golang.org bash scripts/build.sh
 bash scripts/test.sh
 bash scripts/package.sh
 ```
+
+依赖下载后，后续构建默认使用项目内缓存；需要重新下载时可再次设置 `NODEMON_GOPROXY`。脚本会禁用 Tailscale 诊断日志，避免记录临时授权链接；自行运行 Go 构建时也必须使用 `-tags=ts_omit_logtail`，否则内置远程功能不会启动。
 
 也可以通过 `GO_BIN=/绝对路径/go` 使用已有 Go。构建和运行不会自动安装全局软件或注册后台服务。可选的 Linux systemd 服务模板和卸载步骤见 [部署与使用](docs/部署与使用.md)。
 

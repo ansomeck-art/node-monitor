@@ -51,6 +51,98 @@ final class CoreTests {
         XCTAssertEqual(try AgentClient.endpoint("http://127.0.0.1:9274", allowHTTP: false).path, "/v1/snapshot")
         XCTAssertEqual(try AgentClient.endpoint("https://example.com/agent/", allowHTTP: false).path, "/agent/v1/snapshot")
     }
+    func testTailscaleStatusDisplaysOnlyConnectionState() throws {
+        XCTAssertEqual(TailscaleState.fromBackendState("Running"), .connected)
+        XCTAssertEqual(TailscaleState.fromBackendState("NeedsLogin"), .needsLogin)
+        XCTAssertEqual(TailscaleState.fromBackendState("NeedsMachineAuth"), .needsApproval)
+        XCTAssertEqual(TailscaleState.fromBackendState("Stopped"), .stopped)
+        XCTAssertEqual(TailscaleState.fromBackendState("unrecognized"), .unknown)
+    }
+    func testFailedPollRetriesBeforeEnergySavingCadence() throws {
+        let now = Date()
+        XCTAssertEqual(PollingSchedule.nextDelay(cadence: 60, failed: [], now: now), 60)
+        XCTAssertEqual(PollingSchedule.nextDelay(cadence: 60, failed: [(now, 1)], now: now), 10)
+        XCTAssertEqual(PollingSchedule.nextDelay(cadence: 60, failed: [(now, 2)], now: now), 20)
+        XCTAssertEqual(PollingSchedule.nextDelay(cadence: 60, failed: [(now, 10)], now: now), 60)
+        XCTAssertEqual(PollingSchedule.nextDelay(cadence: 5, failed: [(now, 1)], now: now), 5)
+        XCTAssertEqual(PollingSchedule.nextDelay(cadence: 60, failed: [(now.addingTimeInterval(-11), 1)], now: now), 1)
+    }
+    func testRemoteConnectionPlanAndOlderSettings() async throws {
+        var host = HostConfiguration(name: "test", address: "http://192.168.1.20:9274", allowHTTP: true)
+        // Settings written before the remote feature have no new keys.
+        var oldObject = try JSONSerialization.jsonObject(with: JSONCodec.encoder().encode(host)) as! [String: Any]
+        oldObject.removeValue(forKey: "remoteAddress"); oldObject.removeValue(forKey: "connectionMode"); oldObject.removeValue(forKey: "allowInsecureFallback")
+        let oldHost = try JSONCodec.decoder().decode(HostConfiguration.self, from: JSONSerialization.data(withJSONObject: oldObject))
+        XCTAssertNil(oldHost.remoteAddress); XCTAssertNil(oldHost.connectionMode); XCTAssertNil(oldHost.allowInsecureFallback)
+        XCTAssertEqual(oldHost.selectedConnectionMode, .local)
+        XCTAssertEqual(try ConnectionPlan.targets(for: oldHost).count, 1)
+
+        host.remoteAddress = "https://example.ts.net:8443"
+        XCTAssertEqual(host.selectedConnectionMode, .remote) // Compatibility with the first remote preview.
+        host.remoteAddress = nil
+        host.connectionMode = .remote
+        do { _ = try ConnectionPlan.targets(for: host); XCTFail("Expected a remote address error") }
+        catch AgentError.invalidRemoteAddress { }
+        catch { XCTFail("Expected a remote address error") }
+        host.remoteAddress = "https://example.ts.net:8443"
+        host.connectionMode = .local
+        var attempts: [ConnectionTarget.Route] = []
+        let (value, target) = try await ConnectionPlan.fetch(host: host) { target -> Int in
+            attempts.append(target.route); return 42
+        }
+        XCTAssertEqual(value, 42); XCTAssertEqual(target.route, .local); XCTAssertEqual(attempts, [.local])
+        // Neither a saved remote address nor an older fallback flag changes the selected route.
+        host.allowInsecureFallback = true
+        XCTAssertEqual(try ConnectionPlan.targets(for: host).map(\.route), [.local])
+        host.connectionMode = .remote
+        attempts = []
+        do {
+            _ = try await ConnectionPlan.fetch(host: host) { target -> Int in
+                attempts.append(target.route); throw AgentError.network(URLError.timedOut.rawValue)
+            }
+            XCTFail("Remote failure unexpectedly fell back")
+        } catch AgentError.network { }
+        XCTAssertEqual(attempts, [.remote])
+        host.address = "" // A remote-only host does not need a local address.
+        XCTAssertEqual(try ConnectionPlan.targets(for: host).map(\.route), [.remote])
+        let roundTrip = try JSONCodec.decoder().decode(HostConfiguration.self, from: JSONCodec.encoder().encode(host))
+        XCTAssertEqual(roundTrip.selectedConnectionMode, .remote); XCTAssertEqual(roundTrip.remoteAddress, host.remoteAddress)
+        host.remoteAddress = "http://127.0.0.1:9274"
+        XCTAssertThrowsError(try ConnectionPlan.targets(for: host))
+        host.remoteAddress = "http://100.64.0.1:9274"
+        XCTAssertEqual(try ConnectionPlan.targets(for: host).map(\.route), [.remote])
+        host.remoteAddress = "100.100.100.100:9274"
+        XCTAssertEqual(try ConnectionPlan.targets(for: host).map(\.route), [.remote])
+        host.remoteAddress = "192.168.1.20:9274"
+        XCTAssertThrowsError(try ConnectionPlan.targets(for: host))
+        host.remoteAddress = "https://example.com"
+        XCTAssertThrowsError(try ConnectionPlan.targets(for: host))
+        host.remoteAddress = "[fd7a:115c:a1e0::1]:9274"
+        XCTAssertEqual(try ConnectionPlan.targets(for: host).map(\.route), [.remote])
+    }
+    func testEmbeddedBridgePipeAndAuthentication() async throws {
+        let project = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = project.appendingPathComponent("Tests/Fixtures/fake-remote-bridge.py")
+        let bridge = EmbeddedTailscale(root: directory, executable: fixture)
+        let initialStatus = try await bridge.status()
+        let loginHost = try await bridge.login()?.host
+        XCTAssertEqual(initialStatus, "Running")
+        XCTAssertEqual(loginHost, "login.tailscale.com")
+        let sample = try await bridge.fetch(address: "100.64.0.1", token: "fixture-valid")
+        XCTAssertEqual(sample.cpu.usagePercent, 42)
+        do { _ = try await bridge.fetch(address: "100.64.0.1", token: "invalid"); XCTFail("Invalid token accepted by bridge") } catch AgentError.unauthorized { }
+        let count = try await withThrowingTaskGroup(of: Int.self) { group in
+            for _ in 0..<12 { group.addTask { try await bridge.fetch(address: "100.64.0.1", token: "fixture-valid").schemaVersion } }
+            var sum = 0
+            for try await result in group { sum += result }
+            return sum
+        }
+        XCTAssertEqual(count, 12)
+        await bridge.stop()
+        let restartedStatus = try await bridge.status()
+        XCTAssertEqual(restartedStatus, "Running")
+        await bridge.stop()
+    }
     func testGPUCacheExpiryKeepsDeviceButRemovesCurrentSummary() throws {
         let now = Date()
         let fresh = try fixture(at: now, gpuAge: 0)
@@ -137,6 +229,10 @@ final class CoreTests {
         XCTAssertTrue(first.demo); XCTAssertEqual(first.schemaVersion, 1); XCTAssertEqual(first.sampledAt, second.sampledAt)
         XCTAssertNotNil(first.cpu.usagePercent); XCTAssertEqual(first.gpus.count, 1)
         XCTAssertEqual(first.cpu.packages?.count, 1)
+        guard let loopback = ProcessInfo.processInfo.environment["NODEMON_TEST_LOOPBACK_URL"] else { XCTFail("Missing loopback integration URL") }
+        let loopbackSample = try await client.fetch(address: loopback, token: token, allowHTTP: false)
+        XCTAssertEqual(loopbackSample.sampledAt, first.sampledAt)
+        do { _ = try await client.fetch(address: loopback, token: "invalid", allowHTTP: false); XCTFail("Loopback listener accepted invalid credential") } catch AgentError.unauthorized { }
         do { _ = try await client.fetch(address: address, token: "invalid", allowHTTP: false); XCTFail("Invalid credential accepted") } catch AgentError.unauthorized { }
     }
     private func fixture(at date: Date, cpu: Double? = 40, temperature: Double? = nil, gpuAge: Double? = nil) throws -> Snapshot {

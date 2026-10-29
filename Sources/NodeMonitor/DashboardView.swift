@@ -95,7 +95,7 @@ private struct HostDetailView: View {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 7) {
                         Text(host.name).font(.system(size: 25, weight: .semibold))
-                        Text(runtime.snapshot.map { "\($0.host.os)  ·  \($0.cpu.cores) 核  ·  \($0.host.arch)" } ?? host.address).font(.system(size: 12)).foregroundStyle(.secondary)
+                        Text(runtime.snapshot.map { "\($0.host.os)  ·  \($0.cpu.cores) 核  ·  \($0.host.arch)" } ?? (host.selectedConnectionMode == .remote ? (host.remoteAddress ?? "未填写远程地址") : host.address)).font(.system(size: 12)).foregroundStyle(.secondary)
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 8) {

@@ -21,8 +21,9 @@ mac = stage / 'NodeMonitor-macOS-arm64'
 shutil.copytree(root / 'build/节点监控.app', mac / 'build/节点监控.app', dirs_exist_ok=True)
 shutil.copy2(root / '.nodemon-project', mac / '.nodemon-project')
 shutil.copy2(root / 'packaging/Mac-README.md', mac / 'README.md')
-public_docs = ['部署与使用.md', '实现范围与协议.md']
-public_screenshots = ['06-device-dashboard.jpg', '07-device-widget.jpg', '08-device-popover.jpg', '09-device-widget-compact.jpg']
+shutil.copy2(root / 'LICENSE', mac / 'LICENSE')
+public_docs = ['部署与使用.md', '实现范围与协议.md', 'Tailscale远程连接.md']
+public_screenshots = ['06-device-dashboard.jpg', '07-device-widget.jpg', '08-device-popover.jpg', '09-device-widget-compact.jpg', 'lan-connection-preview.png', 'remote-connection-preview.png']
 (mac / 'docs/screenshots').mkdir(parents=True)
 for name in public_docs:
     shutil.copy2(root / 'docs' / name, mac / 'docs' / name)
@@ -33,12 +34,21 @@ for arch in ('amd64', 'arm64'):
     dest.mkdir(parents=True, exist_ok=True)
     shutil.copy2(root / ('build/nodemon-agent-linux-' + arch), dest / 'nodemon-agent')
     shutil.copy2(root / '.nodemon-project', dest / '.nodemon-project')
+    shutil.copy2(root / 'LICENSE', dest / 'LICENSE')
     for file in (root / 'deploy').iterdir():
         if file.is_file(): shutil.copy2(file, dest / file.name)
     shutil.copy2(root / 'docs/部署与使用.md', dest / 'README.md')
+    shutil.copy2(root / 'docs/Tailscale远程连接.md', dest / 'Tailscale远程连接.md')
     (dest / 'nodemon-agent').chmod(0o755)
     (dest / 'run-agent.sh').chmod(0o755)
 PY
+# Include the license texts for the Go toolchain and linked modules in every
+# binary distribution, including Tailscale and its dependencies.
+python3 scripts/collect-licenses.py
+cp .cache/package/THIRD_PARTY_NOTICES.txt .cache/package/NodeMonitor-macOS-arm64/THIRD_PARTY_NOTICES.txt
+for arch in amd64 arm64; do
+    cp .cache/package/THIRD_PARTY_NOTICES.txt ".cache/package/nodemon-agent-linux-$arch/THIRD_PARTY_NOTICES.txt"
+done
 # Remove compiler debug paths from the distributed executable, then restore its
 # ad hoc signature. The app in build/ is left untouched.
 xcrun strip -S .cache/package/NodeMonitor-macOS-arm64/build/节点监控.app/Contents/MacOS/NodeMonitor
@@ -55,10 +65,10 @@ import zipfile
 
 root = Path.cwd()
 public_docs = {
-    Path('docs/部署与使用.md'), Path('docs/实现范围与协议.md'),
+    Path('docs/部署与使用.md'), Path('docs/实现范围与协议.md'), Path('docs/Tailscale远程连接.md'),
     *(Path('docs/screenshots') / name for name in (
         '06-device-dashboard.jpg', '07-device-widget.jpg',
-        '08-device-popover.jpg', '09-device-widget-compact.jpg',
+        '08-device-popover.jpg', '09-device-widget-compact.jpg', 'lan-connection-preview.png', 'remote-connection-preview.png',
     )),
 }
 with zipfile.ZipFile(root / 'dist/NodeMonitor-source.zip', 'w', zipfile.ZIP_DEFLATED) as archive:

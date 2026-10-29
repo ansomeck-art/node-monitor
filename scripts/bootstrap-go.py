@@ -20,7 +20,7 @@ def main():
         print("Project-local Go already available.")
         return
     if platform.system() != "Darwin" or platform.machine() != "arm64":
-        raise SystemExit("Use an existing Go >=1.23 via GO_BIN on this platform.")
+        raise SystemExit("Use an existing Go >=1.27.3 via GO_BIN on this platform.")
     archive = target / FILENAME
     if not archive.exists():
         request = urllib.request.Request("https://go.dev/dl/" + FILENAME,

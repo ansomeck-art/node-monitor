@@ -12,12 +12,15 @@ struct HostRuntime {
     var error: String?
     var failures = 0
     var recent: [HistoryPoint] = []
+    var connectionRoute: ConnectionTarget.Route?
     func status(cadence: Double) -> String {
         if error != nil { return snapshot == nil ? "连接失败" : "连接中断 · 保留旧读数" }
         guard let snapshot else { return "等待连接" }
         if snapshot.isClockSkewed { return "服务器时钟偏差" }
         if !snapshot.isFresh(at: Date(), pollingInterval: cadence) { return "数据已过期" }
-        return snapshot.demo ? "演示数据" : "在线"
+        if snapshot.demo { return "演示数据" }
+        if connectionRoute == .remote { return "在线 · 远程" }
+        return "在线"
     }
     func healthy(cadence: Double) -> Bool { error == nil && snapshot?.isFresh(at: Date(), pollingInterval: cadence) == true }
 }
@@ -25,6 +28,7 @@ private struct PollResult {
     let id: UUID
     let snapshot: Snapshot?
     let error: String?
+    let route: ConnectionTarget.Route?
 }
 
 @MainActor final class AppModel: ObservableObject {
@@ -43,6 +47,7 @@ private struct PollResult {
     let paths: PortablePaths
     let persistence: ConfigurationStore
     let history: HistoryStore
+    let tailscale: EmbeddedTailscaleManager
     private let client = AgentClient()
     private let alerts = AlertEngine()
     private let demoManager = DemoManager()
@@ -57,6 +62,7 @@ private struct PollResult {
         persistence = ConfigurationStore(paths: paths)
         configuration = try persistence.load()
         history = try HistoryStore(url: paths.database)
+        tailscale = EmbeddedTailscaleManager(root: root)
         events = try history.events()
         for host in configuration.hosts { runtimes[host.id] = HostRuntime() }
     }
@@ -71,8 +77,11 @@ private struct PollResult {
         restartPolling()
         if configuration.hosts.contains(where: \.demo) { Task { await startDemo() } }
     }
-    func stop() { pollTask?.cancel(); demoManager.stop() }
-    func suspend() { pollTask?.cancel() }
+    func stop() { pollTask?.cancel(); demoManager.stop(); tailscale.stop() }
+    func suspend() { pollTask?.cancel(); tailscale.stop() }
+    func stopRemoteIfUnused() {
+        if !configuration.hosts.contains(where: { $0.selectedConnectionMode == .remote }) { tailscale.stop() }
+    }
     func visibilityChanged() { restartPolling(); refreshHistory(); widgetsChanged?() }
     func restartPolling() {
         pollTask?.cancel()
@@ -81,7 +90,12 @@ private struct PollResult {
                 guard let self else { return }
                 await self.refreshAll()
                 if Task.isCancelled { return }
-                do { try await Task.sleep(nanoseconds: UInt64(self.cadence * 1_000_000_000)) } catch { return }
+                let failed = self.configuration.hosts.compactMap { host -> (lastAttempt: Date, failures: Int)? in
+                    guard let runtime = self.runtimes[host.id], runtime.failures > 0, let last = runtime.lastAttempt else { return nil }
+                    return (last, runtime.failures)
+                }
+                let delay = PollingSchedule.nextDelay(cadence: self.cadence, failed: failed, now: Date())
+                do { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) } catch { return }
             }
         }
     }
@@ -90,7 +104,7 @@ private struct PollResult {
         let jobs = configuration.hosts.compactMap { host -> (HostConfiguration, String)? in
             if host.demo && !demoManager.running { return nil }
             let runtime = runtimes[host.id] ?? HostRuntime()
-            let backoff = runtime.failures == 0 ? 0 : min(60.0, pow(2, Double(min(runtime.failures, 4))) * 5)
+            let backoff = PollingSchedule.backoff(failures: runtime.failures)
             if let last = runtime.lastAttempt, now.timeIntervalSince(last) < backoff { return nil }
             guard let token = try? persistence.token(for: host.id) else {
                 var state = runtime; state.error = "访问令牌文件缺失，请编辑主机重新填写。"; runtimes[host.id] = state
@@ -99,10 +113,16 @@ private struct PollResult {
             return (host, token)
         }
         let results = await withTaskGroup(of: PollResult.self) { group in
+            let bridge = tailscale.bridge
             for (host, token) in jobs {
-                group.addTask { [client] in
-                    do { return PollResult(id: host.id, snapshot: try await client.fetch(address: host.address, token: token, allowHTTP: host.allowHTTP), error: nil) }
-                    catch { return PollResult(id: host.id, snapshot: nil, error: error.localizedDescription) }
+                group.addTask { [client, bridge] in
+                    do {
+                        let (sample, target) = try await ConnectionPlan.fetch(host: host) { target in
+                            if target.route == .remote { return try await bridge.fetch(address: target.address, token: token) }
+                            return try await client.fetch(address: target.address, token: token, allowHTTP: target.allowHTTP)
+                        }
+                        return PollResult(id: host.id, snapshot: sample, error: nil, route: target.route)
+                    } catch { return PollResult(id: host.id, snapshot: nil, error: error.localizedDescription, route: nil) }
                 }
             }
             var values: [PollResult] = []
@@ -116,7 +136,7 @@ private struct PollResult {
             var runtime = next[result.id] ?? HostRuntime()
             runtime.lastAttempt = Date()
             if let sample = result.snapshot {
-                runtime.snapshot = sample; runtime.receivedAt = Date(); runtime.error = nil; runtime.failures = 0
+                runtime.snapshot = sample; runtime.receivedAt = Date(); runtime.error = nil; runtime.failures = 0; runtime.connectionRoute = result.route
                 do { try history.insert(host: host.id, sample: sample) } catch { message = error.localizedDescription }
                 record(alerts.evaluate(host: host, sample: sample, thresholds: configuration.thresholds, now: Date(), pollingInterval: cadence))
             } else {
@@ -153,7 +173,7 @@ private struct PollResult {
     }
     func toggleWidget(_ id: UUID) { updateWidget(id) { $0.visible.toggle() } }
     func saveHost(_ host: HostConfiguration, token: String) throws {
-        _ = try AgentClient.endpoint(host.address, allowHTTP: host.allowHTTP)
+        _ = try ConnectionPlan.targets(for: host)
         let oldToken = try? persistence.token(for: host.id)
         if !token.isEmpty { try persistence.saveToken(token, for: host.id) }
         else if oldToken == nil { throw ConfigurationError.invalidToken }
@@ -164,7 +184,7 @@ private struct PollResult {
         do { try persistence.save(changed) }
         catch { if let oldToken { try? persistence.saveToken(oldToken, for: host.id) } else { try? persistence.removeToken(for: host.id) }; throw error }
         configuration = changed; runtimes[host.id] = HostRuntime(); alerts.reset(hostID: host.id)
-        restartPolling(); widgetsChanged?()
+        stopRemoteIfUnused(); restartPolling(); widgetsChanged?()
     }
     func deleteHost(_ id: UUID) {
         do {
@@ -172,7 +192,7 @@ private struct PollResult {
             if changed.selectedHostID == id { changed.selectedHostID = changed.hosts.first?.id }
             try persistence.save(changed); configuration = changed
             try persistence.removeToken(for: id); try history.remove(host: id)
-            runtimes.removeValue(forKey: id); alerts.reset(hostID: id); widgetsChanged?(); restartPolling(); refreshHistory()
+            runtimes.removeValue(forKey: id); alerts.reset(hostID: id); widgetsChanged?(); stopRemoteIfUnused(); restartPolling(); refreshHistory()
             if !configuration.hosts.contains(where: \.demo) { demoManager.stop() }
         } catch { message = error.localizedDescription }
     }

@@ -3,36 +3,127 @@ import NodeMonitorCore
 
 struct EditHostView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var tailscale: EmbeddedTailscaleManager
     let existing: HostConfiguration?
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var group = "服务器"
-    @State private var address = "https://"
+    @State private var address = ""
+    @State private var remoteAddress = ""
+    @State private var connectionMode: ConnectionMode = .local
     @State private var token = ""
     @State private var allowHTTP = false
     @State private var error: String?
+    init(model: AppModel, existing: HostConfiguration?) {
+        self.model = model; self.existing = existing; self.tailscale = model.tailscale
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Label(existing == nil ? "添加服务器" : "编辑连接", systemImage: "server.rack").font(.title2.bold())
-            Text("填写 Linux 采集端的地址和访问令牌。").font(.callout).foregroundStyle(.secondary)
-            Form {
-                TextField("名称", text: $name, prompt: Text("例如：Ubuntu 工作站"))
-                TextField("分组", text: $group)
-                TextField("采集端地址", text: $address, prompt: Text("https://server.example.com:9274"))
-                SecureField("访问令牌", text: $token, prompt: Text(existing == nil ? "从服务器的 agent.token 文件复制" : "留空保留现有令牌"))
-                Toggle("允许明文 HTTP（仅可信局域网或隧道）", isOn: $allowHTTP)
-            }.formStyle(.grouped).frame(height: 225)
-            Text("公网使用 HTTPS，或通过 SSH 隧道连接 127.0.0.1。令牌只保存在项目内的权限受限文件中。").font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                Image(systemName: "server.rack").font(.system(size: 20, weight: .medium)).foregroundStyle(.blue)
+                    .frame(width: 44, height: 44).background(.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(existing == nil ? "添加服务器" : "编辑服务器连接").font(.system(size: 20, weight: .semibold))
+                    Text("在局域网或远程网络中查看服务器状态").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Label(connectionMode == .local ? "局域网直连" : "加密远程", systemImage: connectionMode == .local ? "network" : "lock.shield").font(.caption.weight(.medium)).foregroundStyle(.blue)
+                    .padding(.horizontal, 10).padding(.vertical, 6).background(.blue.opacity(0.08), in: Capsule())
+            }
+
+            VStack(alignment: .leading, spacing: 7) {
+                Text("连接方式").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                Picker("连接方式", selection: $connectionMode) {
+                    Text("局域网连接").tag(ConnectionMode.local)
+                    Text("远程连接").tag(ConnectionMode.remote)
+                }.pickerStyle(.segmented).labelsHidden()
+            }
+
+            HStack(spacing: 10) {
+                Label("Mac", systemImage: "laptopcomputer")
+                Image(systemName: "arrow.left.arrow.right").foregroundStyle(.blue)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(connectionMode == .local ? "局域网直连" : "Tailscale 私有网络").fontWeight(.semibold)
+                    Text(connectionMode == .local ? "同一网络中通过服务器内网地址连接" : "网络能力已集成，无需另装客户端").font(.caption2).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "arrow.left.arrow.right").foregroundStyle(.blue)
+                Label("服务器", systemImage: "server.rack")
+            }.font(.caption).padding(14).frame(maxWidth: .infinity)
+                .background(.blue.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+
+            if connectionMode == .remote {
+                VStack(spacing: 0) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "laptopcomputer").foregroundStyle(.blue).frame(width: 24)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("这台 Mac").font(.caption.weight(.semibold))
+                            Text(tailscale.message).font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button(tailscale.connected ? "已授权" : "登录并授权") { tailscale.login() }.disabled(tailscale.busy || tailscale.connected)
+                        Button { tailscale.refresh() } label: { Image(systemName: "arrow.clockwise") }.help("刷新本程序的远程连接状态")
+                    }.padding(12)
+                    Divider().padding(.horizontal, 12)
+                    HStack(spacing: 10) {
+                        Image(systemName: "server.rack").foregroundStyle(.blue).frame(width: 24)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Ubuntu 服务器").font(.caption.weight(.semibold))
+                            Text("采集端需要授权并加入同一网络。接入状态以实际连接为准。").font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("配置步骤") { NSWorkspace.shared.open(model.paths.root.appendingPathComponent("docs/Tailscale远程连接.md")) }
+                    }.padding(12)
+                }.background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
+            }
+
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 14) {
+                    field("服务器名称") { TextField("Ubuntu 工作站", text: $name) }
+                    field("分组") { TextField("服务器", text: $group) }
+                }
+                if connectionMode == .local {
+                    field("服务器局域网地址") {
+                        TextField("http://192.168.1.2:9274", text: $address)
+                    }
+                } else {
+                    field("服务器的远程设备地址") {
+                        TextField("100.x.x.x:9274 或 设备名.网络名.ts.net:9274", text: $remoteAddress)
+                    }
+                }
+                field("访问令牌") {
+                    SecureField(existing == nil ? "从服务器的 agent.token 文件复制" : "留空保留现有令牌", text: $token)
+                }
+                if connectionMode == .local {
+                    Toggle("允许明文 HTTP（仅可信局域网或隧道）", isOn: $allowHTTP).toggleStyle(.checkbox)
+                }
+            }.font(.callout)
+            Text(connectionMode == .local ? "局域网模式仅使用上方地址。明文 HTTP 请仅在可信局域网使用。" : "通过浏览器授权本程序；不需要单独安装 Tailscale。传输仅经过加密私有网络。")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if let error { Text(error).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true) }
             HStack {
-                Button("查看部署说明") { NSWorkspace.shared.open(model.paths.root.appendingPathComponent("docs/部署与使用.md")) }
+                Button(connectionMode == .local ? "局域网连接说明" : "远程连接说明") {
+                    NSWorkspace.shared.open(model.paths.root.appendingPathComponent(connectionMode == .local ? "docs/部署与使用.md" : "docs/Tailscale远程连接.md"))
+                }
                 Spacer()
                 Button("取消") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button(existing == nil ? "添加并连接" : "保存并连接") { save() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-        }.padding(26).frame(width: 540).onAppear {
-            if let host = existing { name = host.name; group = host.group; address = host.address; allowHTTP = host.allowHTTP }
+        }.padding(26).frame(width: 600).onAppear {
+            if let host = existing {
+                name = host.name; group = host.group; address = host.address; allowHTTP = host.allowHTTP
+                remoteAddress = host.remoteAddress ?? ""; connectionMode = host.selectedConnectionMode
+            }
+            if connectionMode == .remote { tailscale.refresh() }
         }
+        .onChange(of: connectionMode) { _, value in if value == .remote { tailscale.refresh() } }
+        .onDisappear { model.stopRemoteIfUnused() }
+    }
+    private func field<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(label).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+            content().textFieldStyle(.roundedBorder).controlSize(.large)
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
     private func save() {
         do {
@@ -40,6 +131,9 @@ struct EditHostView: View {
             host.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
             host.group = group.trimmingCharacters(in: .whitespacesAndNewlines); if host.group.isEmpty { host.group = "服务器" }
             host.address = address.trimmingCharacters(in: .whitespacesAndNewlines); host.allowHTTP = allowHTTP
+            let remote = remoteAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+            host.remoteAddress = remote.isEmpty ? nil : remote
+            host.connectionMode = connectionMode; host.allowInsecureFallback = nil
             try model.saveHost(host, token: token); token = ""; dismiss()
         } catch { self.error = error.localizedDescription }
     }

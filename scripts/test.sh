@@ -14,7 +14,7 @@ python3 - "$READY" <<'PY'
 import pathlib, sys
 pathlib.Path(sys.argv[1]).unlink(missing_ok=True)
 PY
-.cache/integration/agent --demo --listen 127.0.0.1:0 --ready-file "$READY" --token-file "$TOKEN_PATH" --interval 30s --gpu-interval 30s >.cache/integration/agent.log 2>&1 &
+.cache/integration/agent --demo --listen 127.0.0.1:0 --loopback-listen 127.0.0.1:0 --ready-file "$READY" --token-file "$TOKEN_PATH" --interval 30s --gpu-interval 30s >.cache/integration/agent.log 2>&1 &
 TEST_AGENT_PID=$!
 trap 'kill "$TEST_AGENT_PID" 2>/dev/null || true; wait "$TEST_AGENT_PID" 2>/dev/null || true' EXIT
 for attempt in {1..50}; do
@@ -23,5 +23,6 @@ for attempt in {1..50}; do
     sleep 0.1
 done
 export NODEMON_TEST_URL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["url"])' "$READY")"
+export NODEMON_TEST_LOOPBACK_URL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["loopbackURL"])' "$READY")"
 export NODEMON_TEST_TOKEN_FILE="$TOKEN_PATH"
 swift run "${SWIFT_FLAGS[@]}" NodeMonitorChecks

@@ -26,6 +26,8 @@ func XCTSkip(_ message: String) -> CheckError { CheckError(description: message)
             ("individual CPUs and GPUs, legacy compatibility and per-card expiry", suite.testIndividualHardwareAndLegacyAgentCompatibility),
             ("GPU cache expiry and unavailable summary", suite.testGPUCacheExpiryKeepsDeviceButRemovesCurrentSummary),
             ("URL, HTTPS policy and embedded credentials", suite.testAddressRejectsCredentialsAndRequiresExplicitHTTP),
+            ("Tailscale status interpretation", suite.testTailscaleStatusDisplaysOnlyConnectionState),
+            ("bounded retry without delaying energy-saving recovery", suite.testFailedPollRetriesBeforeEnergySavingCadence),
             ("project-local credential and configuration storage", suite.testPortablePersistenceSeparatesCredentialAndRestrictsPermissions),
             ("history deduplication, nulls and retention", suite.testHistoryDeduplicatesCachedSamplesAndKeepsNulls),
             ("sustained threshold, hysteresis and recovery", suite.testAlertDurationHysteresisAndRecovery),
@@ -36,9 +38,13 @@ func XCTSkip(_ message: String) -> CheckError { CheckError(description: message)
         ]
         do {
             for (name, check) in checks { try suite.setUpWithError(); try check(); try suite.tearDownWithError(); print("PASS \(name)") }
+            try suite.setUpWithError(); try await suite.testRemoteConnectionPlanAndOlderSettings(); try suite.tearDownWithError()
+            print("PASS selected connection mode, tailnet address policy and older settings")
+            try suite.setUpWithError(); try await suite.testEmbeddedBridgePipeAndAuthentication(); try suite.tearDownWithError()
+            print("PASS embedded bridge framing, authentication and lifecycle")
             try suite.setUpWithError(); try await suite.testLiveAgentContractAuthenticationAndCaching(); try suite.tearDownWithError()
-            print("PASS live Go-Swift HTTP protocol, authentication and cache")
-            print("\(checks.count + 1) checks passed")
+            print("PASS live Go-Swift protocol, authenticated loopback and cache")
+            print("\(checks.count + 3) checks passed")
         } catch { print("FAIL \(error)"); exit(1) }
     }
 }

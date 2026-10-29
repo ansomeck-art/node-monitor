@@ -1,11 +1,13 @@
 import Foundation
 
 public enum AgentError: LocalizedError {
-    case invalidAddress, plaintextNotAllowed, unauthorized, forbidden, incompatible, http(Int), tooLarge, network(Int)
+    case invalidAddress, invalidRemoteAddress, plaintextNotAllowed, remoteRequiresHTTPS, unauthorized, forbidden, incompatible, http(Int), tooLarge, network(Int)
     public var errorDescription: String? {
         switch self {
         case .invalidAddress: return "请输入 http:// 或 https:// 开头的采集端地址，勿包含账号、密码或查询参数。"
+        case .invalidRemoteAddress: return "请输入服务器的 Tailscale IP 或完整的 .ts.net 设备名，可附带端口。"
         case .plaintextNotAllowed: return "HTTP 连接需要明确允许；公网请使用 HTTPS 或 SSH 隧道。"
+        case .remoteRequiresHTTPS: return "远程地址必须使用 HTTPS。"
         case .unauthorized: return "访问令牌无效，请编辑主机重新填写。"
         case .forbidden: return "采集端拒绝了读取请求。"
         case .incompatible: return "采集端协议不兼容，需要 schemaVersion 1。"

@@ -9,14 +9,26 @@ public struct WidgetSettings: Codable {
     public var frame: String? = nil
     public init() {}
 }
+public enum ConnectionMode: String, Codable {
+    case local, remote
+}
 public struct HostConfiguration: Codable, Identifiable {
     public var id: UUID
     public var name: String
     public var group: String
     public var address: String
     public var allowHTTP: Bool
+    // Optional fields keep existing settings compatible with older releases.
+    public var remoteAddress: String? = nil
+    public var connectionMode: ConnectionMode? = nil
+    // Retained for compatibility with settings created by the first remote preview.
+    public var allowInsecureFallback: Bool? = nil
     public var widget = WidgetSettings()
     public var demo = false
+    public var selectedConnectionMode: ConnectionMode {
+        if let connectionMode { return connectionMode }
+        return (remoteAddress?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? .remote : .local
+    }
     public init(id: UUID = UUID(), name: String, group: String = "服务器", address: String, allowHTTP: Bool = false, demo: Bool = false) {
         self.id = id; self.name = name; self.group = group; self.address = address; self.allowHTTP = allowHTTP; self.demo = demo
     }

@@ -10,7 +10,8 @@ export GOMODCACHE="$PROJECT_ROOT/.cache/gomod"
 export GOPATH="$PROJECT_ROOT/.tools/gopath"
 export GOTOOLCHAIN=local
 export GOENV=off
-export GOPROXY=off
+export GOFLAGS="-tags=ts_omit_logtail"
+export GOPROXY="${NODEMON_GOPROXY:-off}"
 export GOTELEMETRY=off
 export TEST_TELEMETRY_DIR="$PROJECT_ROOT/.cache/go-telemetry"
 export CLANG_MODULE_CACHE_PATH="$PROJECT_ROOT/.cache/clang-modules"
