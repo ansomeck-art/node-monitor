@@ -4,6 +4,9 @@
 build/
 dist/
 data/
+/Android/app/src/main/jniLibs/
+/Windows/**/bin/
+/Windows/**/obj/
 .DS_Store
 ._*
 *.xcodeproj/

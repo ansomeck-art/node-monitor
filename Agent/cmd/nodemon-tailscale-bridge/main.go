@@ -32,6 +32,7 @@ type response struct {
 
 func main() {
 	dir := flag.String("state-dir", "", "private project-local tailnet state directory")
+	hostname := flag.String("hostname", "node-monitor-mac", "embedded Tailscale device name")
 	flag.Parse()
 	if *dir == "" {
 		os.Exit(2)
@@ -40,7 +41,7 @@ func main() {
 	// existing routes so control-plane connections also work through an
 	// already-configured VPN or transparent proxy. This changes no OS routes.
 	netns.SetDisableBindConnToInterface(func(string, ...any) {}, true)
-	node, err := tailnet.New(*dir, "node-monitor-mac")
+	node, err := tailnet.New(*dir, *hostname)
 	if err != nil {
 		os.Exit(2)
 	}

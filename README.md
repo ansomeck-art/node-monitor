@@ -1,8 +1,8 @@
 # 节点监控 · Node Monitor
 
-一个面向 Linux 服务器的原生 macOS 监控工具。通过菜单栏、桌面挂件和监控台查看远程主机的 CPU、GPU、内存、显存、磁盘和网络状态。
+一个面向服务器和个人电脑的监控工具。通过监控台和桌面挂件查看远程主机的 CPU、GPU、内存、显存、磁盘和网络状态。
 
-Mac 客户端使用 SwiftUI / AppKit；服务器采集端使用 Go。采集端与客户端直接连接，不需要额外部署中心服务。
+Mac 客户端使用 SwiftUI / AppKit；服务器采集端使用 Go。采集端与客户端直接连接，不需要额外部署中心服务。Windows 采集端、Windows 监控客户端和 Android 监控客户端现已提供开发版，使用相同协议；具体硬件及实机验证限制见下方说明。
 
 ## 界面截图
 
@@ -22,6 +22,16 @@ Mac 客户端使用 SwiftUI / AppKit；服务器采集端使用 Go。采集端�
 | --- | --- |
 | ![局域网连接示例](docs/screenshots/lan-connection-preview.png) | ![远程连接示例](docs/screenshots/remote-connection-preview.png) |
 
+### Android 与 Windows 界面设计
+
+下面是开发阶段的效果图，使用示例数据；实际界面和可用功能可能有所不同。
+
+| Android 设计 | Windows 监控 Ubuntu 设计 |
+| --- | --- |
+| ![Android 设计效果图](docs/design/android-monitor-concept-dark-v2-2026-11-03.png) | ![Windows 客户端设计效果图](docs/design/windows-client-ubuntu-concept-2026-11-03.png) |
+
+其他方案：[Android 浅色版](docs/design/android-monitor-concept-light-v2-2026-11-03.png) · [Android 初版](docs/design/android-monitor-concept-2026-11-03.png) · [Mac 监控 Windows 设计](docs/design/windows-monitor-concept-2026-11-03.png)。
+
 ## 主要功能
 
 - 菜单栏与挂件按物理 CPU 和显卡分别显示使用率、温度；显卡还分别显示显存。
@@ -29,7 +39,7 @@ Mac 客户端使用 SwiftUI / AppKit；服务器采集端使用 Go。采集端�
 - 挂件支持拖动、两种尺寸、透明度、锁定和置顶。
 - 多台服务器共用客户端连接缓存；断线后保留旧数据并标记状态。
 - 基础指标默认每 5 秒采集，GPU 默认每 15 秒采集；界面全部隐藏时客户端降低轮询频率。
-- 采集 API 只读，使用访问令牌认证，支持 TLS；远程连接也可使用 SSH 隧道。
+- 采集 API 只读，默认使用访问令牌认证，支持 TLS；远程连接也可使用 SSH 隧道。可选择仅在 Tailscale 监听上允许同账号且符合网络规则的设备免令牌读取。
 - 内置 Tailscale 私有网络，Mac 与 Linux 采集端各自登录授权后即可异网连接，无需另外安装 Tailscale 客户端。
 
 CPU 插槽使用 Linux 拓扑识别；可对应的温度来自传感器。NVIDIA 数据来自 `nvidia-smi`。系统或驱动未提供的数据会显示为 `—`，不会当作零值。
@@ -38,10 +48,15 @@ CPU 插槽使用 Linux 拓扑识别；可对应的温度来自传感器。NVIDIA
 
 从 [Releases](https://github.com/ansomeck-art/node-monitor/releases) 下载需要的文件：
 
+- [v0.2.0 开发预览](https://github.com/ansomeck-art/node-monitor/releases/tag/v0.2.0-dev.1)：Mac 客户端、Android APK、Windows 客户端与采集端，以及包含最新远程认证功能的 Linux 采集端。Android 和 Windows 尚未完成实机验证。
+- [v0.1.0](https://github.com/ansomeck-art/node-monitor/releases/tag/v0.1.0)：较早的 Mac 和 Linux 发行包。
+
+常用文件：
+
 - `NodeMonitor-macOS-arm64.zip`：Apple Silicon Mac 便携客户端，需要 macOS 14 或更新版本。
 - `nodemon-agent-linux-amd64.tar.gz`：x86-64 Linux 服务器采集端。
 - `nodemon-agent-linux-arm64.tar.gz`：ARM64 Linux 服务器采集端。
-- `NodeMonitor-source.zip`：源码、截图及构建脚本；也可直接克隆此仓库。
+- 开发预览中的源码压缩包包含源码、截图及构建脚本；也可直接克隆此仓库。
 
 解压 Mac 包后保留整个文件夹，双击其中的 `build/节点监控.app`；不要单独移走应用，因为同级项目标记用于定位配置和数据。首次使用可选择模拟演示，或在服务器运行采集端后添加主机。详细步骤见 [部署与使用](docs/部署与使用.md)。
 
@@ -49,14 +64,15 @@ Linux 采集端可在独立目录以普通用户运行。默认监听本机；�
 
 服务器没有公网 IP 时，可使用内置 Tailscale 私有网络。Mac 可手动选择局域网直连或远程连接，并分别保存地址；远程监控需要两端在同一私有网络内授权。具体步骤见 [Tailscale 远程连接](docs/Tailscale远程连接.md)。
 
-内置远程连接目前包含在源码和本机构建中，原有的 v0.1.0 发行包尚未包含这项更新。已在 Ubuntu 服务器和切换到手机热点的 Mac 之间验证实时监控，实际连接受各自网络和访问规则影响。
+内置远程连接包含在源码和 v0.2.0 开发预览中，原有的 v0.1.0 发行包尚未包含这项更新。已在 Ubuntu 服务器和切换到手机热点的 Mac 之间验证实时监控，实际连接受各自网络和访问规则影响。
 
 发行包不包含服务器连接信息、令牌或历史数据。应用为临时签名版本，**尚未经过 Apple Developer ID 签名和公证**，macOS 可能提示无法验证开发者，使用前需要按系统提示确认。
 
 ## 平台和限制
 
 - 已在一台 Ubuntu x86-64、双 CPU、双 NVIDIA 显卡的主机上进行实机验证；Linux ARM64 仅完成交叉编译。
-- Intel Mac 客户端和 Windows 服务器采集端尚未实现；AMD / Intel 显卡的部分数据依赖内核支持，尚未实机验证。
+- Windows 采集端、Windows 客户端和 Android 客户端已提供开发版，尚需实机验证。Windows CPU 温度、部分多路 CPU 使用率和 AMD / Intel GPU 监控尚不可用，详情见 [Windows 使用说明](Windows/README.md) 和 [Android 使用说明](Android/README.md)。
+- Intel Mac 客户端尚未实现；Linux 的 AMD / Intel 显卡部分数据依赖内核支持，尚未实机验证。
 - CPU 温度、GPU 功耗和风扇等数据依赖硬件、驱动和采集权限。普通内存不保证提供温度。
 - 本地历史只在 Mac 客户端运行并连接时记录；休眠或断网期间不补造数据。
 - `nvidia-smi` 可能影响 GPU 空闲功耗；资源使用和能耗因机器、采样频率及显示状态而异。
@@ -76,10 +92,13 @@ bash scripts/package.sh
 
 也可以通过 `GO_BIN=/绝对路径/go` 使用已有 Go。构建和运行不会自动安装全局软件或注册后台服务。可选的 Linux systemd 服务模板和卸载步骤见 [部署与使用](docs/部署与使用.md)。
 
+Windows 和 Android 开发版的构建步骤分别见 [Windows 使用说明](Windows/README.md) 和 [Android 使用说明](Android/README.md)。相关工具准备好后，运行 `bash scripts/test-cross-platform.sh` 可检查连接地址和显卡读数过期处理。
+
 | 路径 | 内容 |
 | --- | --- |
 | `Sources/` | macOS 界面、协议与数据处理 |
-| `Agent/` | Linux 采集端和只读 API |
+| `Agent/` | Linux / Windows 采集端和只读 API |
+| `Windows/`、`Android/` | Windows 客户端和 Android 客户端开发版 |
 | `Tests/` | 客户端与采集端测试 |
 | `scripts/`、`Tools/` | 构建、打包与辅助工具 |
 | `deploy/` | 可选的 Linux 启动模板 |

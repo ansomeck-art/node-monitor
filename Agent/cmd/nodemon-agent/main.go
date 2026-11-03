@@ -31,6 +31,7 @@ func main() {
 	tailnetDir := flag.String("tailscale-dir", "./data/tailscale-agent", "private project-local Tailscale identity directory")
 	tailnetHostname := flag.String("tailscale-hostname", "node-monitor-server", "name of the embedded Tailscale device")
 	tailnetLogin := flag.Bool("tailscale-login", false, "authorize the embedded Tailscale device in an interactive terminal")
+	tailnetOwnerAuth := flag.Bool("tailscale-owner-auth", false, "allow devices owned by the same Tailscale user to read snapshots on the tailnet listener")
 	tokenFile := flag.String("token-file", "./data/agent.token", "private bearer-token file (auto-created, never logged)")
 	interval := flag.Duration("interval", 5*time.Second, "base collection interval, minimum 2s")
 	gpuInterval := flag.Duration("gpu-interval", 15*time.Second, "GPU query interval, minimum base interval")
@@ -53,11 +54,14 @@ func main() {
 		}
 		return
 	}
-	if !*demo && runtime.GOOS != "linux" {
-		log.Fatal("Real collection requires Linux. Use --demo only for simulated data.")
+	if !*demo && runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+		log.Fatal("Real collection requires Linux or Windows. Use --demo only for simulated data.")
 	}
 	if *interval < 2*time.Second || *gpuInterval < *interval {
 		log.Fatal("Require interval >= 2s and gpu-interval >= interval")
+	}
+	if *tailnetOwnerAuth && *tailnetListen == "" {
+		log.Fatal("--tailscale-owner-auth requires a Tailscale listener")
 	}
 	collector := metrics.NewCollector(*gpuInterval, !*gpuOff)
 	collect := func(now time.Time) metrics.Snapshot {
@@ -109,13 +113,13 @@ func main() {
 		defer loopbackListener.Close()
 	}
 	handler := server.Handler(store, token)
-	newServer := func() *http.Server {
-		return &http.Server{Handler: handler, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
+	newServer := func(h http.Handler) *http.Server {
+		return &http.Server{Handler: h, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 	}
-	srv := newServer()
+	srv := newServer(handler)
 	var loopbackServer *http.Server
 	if loopbackListener != nil {
-		loopbackServer = newServer()
+		loopbackServer = newServer(handler)
 	}
 	var tailnetNode *tailnet.Node
 	var tailnetListener net.Listener
@@ -131,7 +135,11 @@ func main() {
 			log.Fatal("Cannot initialize tailnet-only listener")
 		}
 		defer tailnetListener.Close()
-		tailnetServer = newServer()
+		tailnetHandler := handler
+		if *tailnetOwnerAuth {
+			tailnetHandler = server.TailnetHandler(store, token, tailnetNode.SameOwner)
+		}
+		tailnetServer = newServer(tailnetHandler)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -199,7 +207,7 @@ func main() {
 // Login links are displayed only on the controlling terminal, never in daemon
 // logs or a generated file. Run this before enabling the embedded listener.
 func loginTailnet(dir, hostname string) error {
-	tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0)
+	tty, err := openControlTerminal()
 	if err != nil {
 		return errors.New("an interactive terminal is required")
 	}
@@ -255,8 +263,11 @@ func listenOnLoopback(address string) (net.Listener, error) {
 }
 func loadToken(path string) (string, error) {
 	if info, err := os.Stat(path); err == nil {
-		if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
-			return "", fmt.Errorf("token file must be a regular file with permission 0600")
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("token file must be a regular file")
+		}
+		if err := protectExistingToken(path, info); err != nil {
+			return "", err
 		}
 		b, err := os.ReadFile(path)
 		if err != nil {
@@ -285,7 +296,7 @@ func privateWrite(path string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	if err = f.Chmod(0600); err != nil {
+	if err = protectNewToken(path, f); err != nil {
 		f.Close()
 		return err
 	}

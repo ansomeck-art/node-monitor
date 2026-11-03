@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
@@ -19,6 +20,16 @@ type Store struct {
 func (s *Store) Put(value metrics.Snapshot) { s.mu.Lock(); s.snapshot = value; s.mu.Unlock() }
 func (s *Store) Get() metrics.Snapshot      { s.mu.RLock(); defer s.mu.RUnlock(); return s.snapshot }
 func Handler(store *Store, token string) http.Handler {
+	return handler(store, token, nil)
+}
+
+// TailnetHandler accepts a verified Tailscale identity only on the caller's
+// private tailnet listener. Ordinary listeners must continue using Handler.
+func TailnetHandler(store *Store, token string, authorized func(context.Context, string) bool) http.Handler {
+	return handler(store, token, authorized)
+}
+
+func handler(store *Store, token string, authorized func(context.Context, string) bool) http.Handler {
 	digest := sha256.Sum256([]byte(token))
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -38,7 +49,9 @@ func Handler(store *Store, token string) http.Handler {
 		}
 		header := r.Header.Get("Authorization")
 		candidate := sha256.Sum256([]byte(strings.TrimPrefix(header, "Bearer ")))
-		if token == "" || !strings.HasPrefix(header, "Bearer ") || subtle.ConstantTimeCompare(candidate[:], digest[:]) != 1 {
+		validToken := token != "" && strings.HasPrefix(header, "Bearer ") && subtle.ConstantTimeCompare(candidate[:], digest[:]) == 1
+		validPeer := header == "" && authorized != nil && authorized(r.Context(), r.RemoteAddr)
+		if !validToken && !validPeer {
 			w.WriteHeader(http.StatusUnauthorized)
 			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
 			return

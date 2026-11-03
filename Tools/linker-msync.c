@@ -13,7 +13,17 @@ static int nodemon_msync(void *address, size_t length, int flags) {
     }
     return msync(address, length, flags);
 }
+// LLVM's Android linker unmaps output without calling msync at all. Flush
+// each mapping before it is released; errors on non-file mappings are benign.
+static int nodemon_munmap(void *address, size_t length) {
+    (void)msync(address, length, MS_SYNC);
+    return munmap(address, length);
+}
 __attribute__((used, section("__DATA,__interpose")))
 static const struct { const void *replacement; const void *original; } nodemon_interpose = {
     (const void *)&nodemon_msync, (const void *)&msync
+};
+__attribute__((used, section("__DATA,__interpose")))
+static const struct { const void *replacement; const void *original; } nodemon_munmap_interpose = {
+    (const void *)&nodemon_munmap, (const void *)&munmap
 };

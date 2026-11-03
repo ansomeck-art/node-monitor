@@ -1,0 +1,16 @@
+<Window x:Class="NodeMonitor.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="节点监控" Width="1080" Height="760" MinWidth="760" MinHeight="560" Background="#F4F7FD" WindowStartupLocation="CenterScreen">
+ <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="220"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+  <Border Background="#EAF1FC" Padding="20"><DockPanel>
+   <StackPanel DockPanel.Dock="Top"><TextBlock Text="▣  节点监控" FontSize="22" FontWeight="Bold" Margin="0,4,0,24"/><TextBlock Text="我的主机" Foreground="#657691" Margin="0,0,0,10"/>
+    <ListBox x:Name="Hosts" DisplayMemberPath="Name" SelectionChanged="HostChanged" Background="Transparent" BorderThickness="0" MinHeight="80"/></StackPanel>
+   <StackPanel DockPanel.Dock="Bottom"><Button Content="＋ 添加主机" Click="AddHost" HorizontalAlignment="Stretch"/><Button Content="桌面挂件" Click="ShowWidget" HorizontalAlignment="Stretch"/></StackPanel>
+  </DockPanel></Border>
+  <Grid Grid.Column="1" Margin="22"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+   <DockPanel><StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button Content="编辑" Click="EditHost"/><Button Content="刷新" Click="RefreshClick"/><Button Content="桌面挂件" Click="ShowWidget"/></StackPanel>
+    <StackPanel><TextBlock x:Name="HostTitle" Text="选择或添加主机" FontSize="26" FontWeight="Bold"/><TextBlock x:Name="HostMeta" Text="支持 Ubuntu 和 Windows" Foreground="#71819A" Margin="0,5,0,12"/></StackPanel>
+   </DockPanel>
+   <Border Grid.Row="1" CornerRadius="10" Background="#E5EDFA" Padding="10" Margin="0,0,0,14"><DockPanel><StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button x:Name="DirectButton" Content="局域网" Click="DirectClick" Visibility="Collapsed"/><Button x:Name="RemoteButton" Content="远程" Click="RemoteClick" Visibility="Collapsed"/><Button x:Name="LoginButton" Content="登录远程网络" Click="LoginClick" Visibility="Collapsed"/></StackPanel><TextBlock x:Name="Status" Text="等待添加主机" VerticalAlignment="Center" TextWrapping="Wrap"/></DockPanel></Border>
+   <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto"><StackPanel x:Name="ContentPanel"/></ScrollViewer>
+  </Grid>
+ </Grid>
+</Window>

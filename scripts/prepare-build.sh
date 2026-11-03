@@ -2,7 +2,7 @@
 set -euo pipefail
 source "$(dirname "$0")/env.sh"
 if [[ ! -x "$GO_BIN" ]]; then python3 "$PROJECT_ROOT/scripts/bootstrap-go.py"; fi
-if diskutil info "$PROJECT_ROOT" 2>/dev/null | rg -q 'ExFAT'; then
+if diskutil info "$(df -P "$PROJECT_ROOT" | awk 'NR==2 {print $1}')" 2>/dev/null | rg -qi 'ExFAT'; then
     TOOL_DIR="$("$GO_BIN" env GOTOOLDIR)"
     STAMP="$(shasum -a 256 "$TOOL_DIR/link" "$PROJECT_ROOT/Tools/linker-msync.c")"
     if [[ ! -f "$PROJECT_ROOT/.tools/exfat-linker/source.sha256" ]] || [[ "$(cat "$PROJECT_ROOT/.tools/exfat-linker/source.sha256")" != "$STAMP" ]]; then

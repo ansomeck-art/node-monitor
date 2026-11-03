@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"nodemon/agent/internal/securestate"
 	"tailscale.com/client/local"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tsnet"
@@ -56,6 +57,9 @@ func New(dir, hostname string) (*Node, error) {
 	}
 	if err := os.Chmod(dir, 0700); err != nil {
 		return nil, err
+	}
+	if err := securestate.Protect(dir, true); err != nil {
+		return nil, errors.New("cannot protect private Tailscale state")
 	}
 	// tsnet otherwise logs login URLs by default. Never write them to logs.
 	s := &tsnet.Server{Dir: dir, Hostname: hostname, UserLogf: func(string, ...any) {}, Logf: func(string, ...any) {}}
@@ -171,7 +175,9 @@ func (n *Node) Fetch(ctx context.Context, address, token string) ([]byte, error)
 	if err != nil {
 		return nil, ErrInvalidAddress
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	req.Header.Set("Accept", "application/json")
 	resp, err := n.http.Do(req)
 	if err != nil {

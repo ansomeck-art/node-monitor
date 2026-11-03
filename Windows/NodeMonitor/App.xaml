@@ -1,0 +1,9 @@
+<Application x:Class="NodeMonitor.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" StartupUri="MainWindow.xaml" ShutdownMode="OnExplicitShutdown">
+  <Application.Resources>
+    <Style TargetType="Button">
+      <Setter Property="Background" Value="#EFF4FF"/><Setter Property="Foreground" Value="#22314B"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Padding" Value="13,8"/><Setter Property="Margin" Value="3"/><Setter Property="Cursor" Value="Hand"/>
+    </Style>
+    <Style TargetType="TextBlock"><Setter Property="Foreground" Value="#17243A"/></Style>
+    <Style TargetType="ProgressBar"><Setter Property="Height" Value="6"/><Setter Property="Foreground" Value="#2380F6"/><Setter Property="Background" Value="#DDE7F6"/><Setter Property="BorderThickness" Value="0"/></Style>
+  </Application.Resources>
+</Application>

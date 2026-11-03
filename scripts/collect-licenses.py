@@ -11,7 +11,7 @@ go = os.environ['GO_BIN']
 decoder = json.JSONDecoder()
 modules = {}
 
-for platform, arch in [('darwin', 'arm64'), ('linux', 'amd64'), ('linux', 'arm64')]:
+for platform, arch in [('darwin', 'arm64'), ('linux', 'amd64'), ('linux', 'arm64'), ('windows', 'amd64')]:
     env = dict(os.environ, GOOS=platform, GOARCH=arch, CGO_ENABLED='0')
     data = subprocess.check_output(
         [go, 'list', '-deps', '-json', './cmd/nodemon-agent', './cmd/nodemon-tailscale-bridge'],
