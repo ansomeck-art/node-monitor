@@ -204,12 +204,19 @@ public final class MainActivity extends Activity {
         store.setWidgetHost(h.optString("id")); JSONObject snapshot=snapshots.get(h.optString("id"));
         MonitorWidget.update(this,h,snapshot,snapshot==null?"等待更新":"在线 · "+Metrics.sampleTime(snapshot)); MonitorWidget.schedule(this);
         AppWidgetManager manager=AppWidgetManager.getInstance(this);
+        boolean requested=false;
         try {
-            if(manager.isRequestPinAppWidgetSupported() && manager.requestPinAppWidget(new ComponentName(this,MonitorWidget.class),null,null)) {
-                Toast.makeText(this,"请在桌面弹窗中确认添加挂件",Toast.LENGTH_LONG).show(); return;
-            }
+            requested=manager.isRequestPinAppWidgetSupported() && manager.requestPinAppWidget(new ComponentName(this,MonitorWidget.class),null,null);
         } catch(RuntimeException ignored) { }
-        new AlertDialog.Builder(this).setTitle("添加桌面挂件").setMessage("已选择此主机。当前桌面不支持直接添加，请长按手机桌面，选择“添加小部件 / 挂件”，找到“节点监控”并拖到桌面。已有挂件会显示此主机。").setPositiveButton("知道了",null).show();
+        // A successful request only means the launcher supports pinning, not that it displayed a prompt or added the widget.
+        String message=requested?"已向手机桌面发送添加请求。如果出现系统确认，请确认添加；如果没有弹窗，可以手动添加：":"已选择此主机。当前桌面无法直接添加，可以手动添加：";
+        message+="\n\n长按手机桌面空白处 → 小部件 → 节点监控。\n\n小米手机如果没有找到：在小部件页面点击搜索，再选底部的“安卓小部件”，找到绿色圆环图标的“节点监控”。已有挂件会显示此主机。";
+        new AlertDialog.Builder(this).setTitle("添加桌面挂件").setMessage(message)
+            .setNegativeButton("知道了",null)
+            .setPositiveButton("返回桌面",(dialog,which)->{
+                try { Intent home=new Intent(Intent.ACTION_MAIN); home.addCategory(Intent.CATEGORY_HOME); home.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(home); }
+                catch(ActivityNotFoundException e) { Toast.makeText(this,"请返回手机桌面添加挂件",Toast.LENGTH_LONG).show(); }
+            }).show();
     }
     private void detailGauge(LinearLayout target,String key,String name,String sub,JSONObject value,boolean gpu) {
         LinearLayout line=row(); line.setPadding(0,dp(5),0,dp(5)); line.addView(ring(key,value,name),new LinearLayout.LayoutParams(dp(54),dp(54))); spaceHorizontal(line,12);
