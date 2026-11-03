@@ -48,7 +48,8 @@ CPU 插槽使用 Linux 拓扑识别；可对应的温度来自传感器。NVIDIA
 
 从 [Releases](https://github.com/ansomeck-art/node-monitor/releases) 下载需要的文件：
 
-- v0.2.0 开发预览仍在准备中；Android 与 Windows 的源码及构建说明可在仓库中查看。
+- [Android 白色圆环开发预览](https://github.com/ansomeck-art/node-monitor/releases/tag/v0.2.0-android-preview.1)：可与旧版并存，需要重新添加主机；新版界面与挂件尚待实机验证。
+- v0.2.0 多平台发行包仍在准备中；Android 与 Windows 的源码及构建说明可在仓库中查看。
 - [v0.1.0](https://github.com/ansomeck-art/node-monitor/releases/tag/v0.1.0)：较早的 Mac 和 Linux 发行包。
 
 常用文件：
