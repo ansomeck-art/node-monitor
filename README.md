@@ -28,7 +28,7 @@ Mac 客户端使用 SwiftUI / AppKit；服务器采集端使用 Go。采集端�
 
 | Android 设计 | Windows 监控 Ubuntu 设计 |
 | --- | --- |
-| ![Android 设计效果图](docs/design/android-monitor-concept-dark-v2-2026-11-03.png) | ![Windows 客户端设计效果图](docs/design/windows-client-ubuntu-concept-2026-11-03.png) |
+| ![Android 白色圆环设计效果图](docs/design/android-white-motion-preview-2026-11-03.png) | ![Windows 客户端设计效果图](docs/design/windows-client-ubuntu-concept-2026-11-03.png) |
 
 其他方案：[Android 浅色版](docs/design/android-monitor-concept-light-v2-2026-11-03.png) · [Android 初版](docs/design/android-monitor-concept-2026-11-03.png) · [Mac 监控 Windows 设计](docs/design/windows-monitor-concept-2026-11-03.png)。
 
@@ -48,7 +48,7 @@ CPU 插槽使用 Linux 拓扑识别；可对应的温度来自传感器。NVIDIA
 
 从 [Releases](https://github.com/ansomeck-art/node-monitor/releases) 下载需要的文件：
 
-- [v0.2.0 开发预览](https://github.com/ansomeck-art/node-monitor/releases/tag/v0.2.0-dev.1)：Mac 客户端、Android APK、Windows 客户端与采集端，以及包含最新远程认证功能的 Linux 采集端。Android 和 Windows 尚未完成实机验证。
+- v0.2.0 开发预览仍在准备中；Android 与 Windows 的源码及构建说明可在仓库中查看。
 - [v0.1.0](https://github.com/ansomeck-art/node-monitor/releases/tag/v0.1.0)：较早的 Mac 和 Linux 发行包。
 
 常用文件：
@@ -64,7 +64,7 @@ Linux 采集端可在独立目录以普通用户运行。默认监听本机；�
 
 服务器没有公网 IP 时，可使用内置 Tailscale 私有网络。Mac 可手动选择局域网直连或远程连接，并分别保存地址；远程监控需要两端在同一私有网络内授权。具体步骤见 [Tailscale 远程连接](docs/Tailscale远程连接.md)。
 
-内置远程连接包含在源码和 v0.2.0 开发预览中，原有的 v0.1.0 发行包尚未包含这项更新。已在 Ubuntu 服务器和切换到手机热点的 Mac 之间验证实时监控，实际连接受各自网络和访问规则影响。
+内置远程连接已包含在源码中，原有的 v0.1.0 发行包尚未包含这项更新。已在 Ubuntu 服务器和切换到手机热点的 Mac 之间验证实时监控，实际连接受各自网络和访问规则影响。
 
 发行包不包含服务器连接信息、令牌或历史数据。应用为临时签名版本，**尚未经过 Apple Developer ID 签名和公证**，macOS 可能提示无法验证开发者，使用前需要按系统提示确认。
 

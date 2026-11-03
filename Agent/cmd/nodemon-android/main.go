@@ -13,15 +13,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf16"
 	"unsafe"
 
+	"nodemon/agent/internal/androidnet"
 	"nodemon/agent/internal/tailnet"
+	"tailscale.com/net/netmon"
 	"tailscale.com/net/netns"
 )
+
+func init() {
+	// Android app UIDs cannot reliably enumerate interfaces through netlink.
+	// tsnet does not register the Android-specific getter automatically.
+	netmon.RegisterInterfaceGetter(androidnet.Interfaces)
+	netmon.UpdateLastKnownDefaultRouteInterface(androidnet.InterfaceName)
+}
 
 var bridge struct {
 	sync.Mutex
@@ -37,6 +47,15 @@ func nodeFor(dir string) (*tailnet.Node, error) {
 	}
 	if bridge.node != nil {
 		return nil, errors.New("identity directory changed")
+	}
+	// Android app processes often have no HOME or writable working directory.
+	// Point Tailscale's log-state lookup at this app-private directory before
+	// startup; the ts_omit_logtail build tag keeps diagnostic uploads disabled.
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, err
+	}
+	if err := os.Setenv("TS_LOGS_DIR", dir); err != nil {
+		return nil, err
 	}
 	netns.SetDisableBindConnToInterface(func(string, ...any) {}, true)
 	node, err := tailnet.New(dir, "node-monitor-android")
@@ -75,18 +94,35 @@ func respond(a answer) *C.char {
 }
 
 //export nmRequest
-func nmRequest(action, dir, address, token *C.char) *C.char {
+func nmRequest(action, dir, address, token *C.char) (result *C.char) {
+	defer func() {
+		if recover() != nil {
+			result = respond(answer{Error: "unavailable"})
+		}
+	}()
+	operation := C.GoString(action)
+	if operation == "network_changed" {
+		bridge.Lock()
+		node := bridge.node
+		bridge.Unlock()
+		if node != nil && node.Server.Sys() != nil {
+			if monitor, ok := node.Server.Sys().NetMon.GetOK(); ok {
+				monitor.InjectEvent()
+			}
+		}
+		return respond(answer{})
+	}
 	node, err := nodeFor(C.GoString(dir))
 	if err != nil {
 		return respond(answer{Error: "unavailable"})
 	}
 	timeout := 15 * time.Second
-	if C.GoString(action) == "login" || C.GoString(action) == "discover" {
+	if operation == "login" || operation == "discover" {
 		timeout = 40 * time.Second
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	switch C.GoString(action) {
+	switch operation {
 	case "status":
 		status, err := node.Status(ctx)
 		if err != nil || status == nil {

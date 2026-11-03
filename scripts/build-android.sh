@@ -4,6 +4,9 @@ source "$(dirname "$0")/env.sh"
 ANDROID_SDK="${ANDROID_SDK:-/opt/homebrew/share/android-commandlinetools}"
 ANDROID_NDK="${ANDROID_NDK:-$PROJECT_ROOT/.tools/android/android-ndk-r28c}"
 JAVA_HOME="${JAVA_HOME:-/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home}"
+ANDROID_APP_ID="${NODEMON_ANDROID_APP_ID:-cn.nodemon.app}"
+ANDROID_OUTPUT="${NODEMON_ANDROID_OUTPUT:-$PROJECT_ROOT/build/android/NodeMonitor-development-arm64.apk}"
+if [[ ! "$ANDROID_APP_ID" =~ ^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)+$ ]]; then printf 'Invalid Android application ID\n' >&2; exit 1; fi
 export JAVA_HOME
 BT="$ANDROID_SDK/build-tools/36.0.0"
 JAR="$ANDROID_SDK/platforms/android-36/android.jar"
@@ -12,7 +15,7 @@ for required in "$BT/aapt2" "$BT/d8" "$BT/zipalign" "$BT/apksigner" "$JAR" "$NDK
   if [[ ! -e "$required" ]]; then printf 'Missing required Android build tool: %s\n' "$required" >&2; exit 1; fi
 done
 WORK="$PROJECT_ROOT/.cache/android-build"
-mkdir -p "$WORK" "$PROJECT_ROOT/build/android" "$PROJECT_ROOT/Android/app/src/main/jniLibs/arm64-v8a"
+mkdir -p "$WORK" "$(dirname "$ANDROID_OUTPUT")" "$PROJECT_ROOT/Android/app/src/main/jniLibs/arm64-v8a"
 ANDROID_LINK_FLAGS=(-ldflags "")
 if diskutil info "$(df -P "$PROJECT_ROOT" | awk 'NR==2 {print $1}')" 2>/dev/null | rg -qi 'ExFAT'; then
   "$PROJECT_ROOT/scripts/prepare-build.sh"
@@ -39,7 +42,7 @@ fi
 rm -rf "$WORK/generated" "$WORK/classes" "$WORK/dex" "$WORK/apk-root" "$WORK/res.zip" "$WORK/resources.ap_" "$WORK/unsigned.apk" "$WORK/aligned.apk"
 mkdir -p "$WORK/generated" "$WORK/classes" "$WORK/dex" "$WORK/apk-root/lib/arm64-v8a"
 "$BT/aapt2" compile --dir "$PROJECT_ROOT/Android/app/src/main/res" -o "$WORK/res.zip"
-"$BT/aapt2" link -I "$JAR" --manifest "$PROJECT_ROOT/Android/app/src/main/AndroidManifest.xml" --java "$WORK/generated" --min-sdk-version 26 --target-sdk-version 35 --version-code 2 --version-name 0.2.0-dev.1 -o "$WORK/resources.ap_" "$WORK/res.zip"
+"$BT/aapt2" link -I "$JAR" --manifest "$PROJECT_ROOT/Android/app/src/main/AndroidManifest.xml" --java "$WORK/generated" --custom-package cn.nodemon.app --rename-manifest-package "$ANDROID_APP_ID" --min-sdk-version 26 --target-sdk-version 35 --version-code 2 --version-name 0.2.0-dev.1 -o "$WORK/resources.ap_" "$WORK/res.zip"
 find "$PROJECT_ROOT/Android/app/src/main/java" "$WORK/generated" -name '*.java' ! -name '._*' > "$WORK/sources.txt"
 "$JAVA_HOME/bin/javac" -encoding UTF-8 -source 17 -target 17 -classpath "$JAR" -d "$WORK/classes" @"$WORK/sources.txt"
 rm -f "$WORK/classes.jar"
@@ -52,6 +55,6 @@ cp "$WORK/dex/classes.dex" "$WORK/apk-root/"
 "$BT/zipalign" -f 4 "$WORK/unsigned.apk" "$WORK/aligned.apk"
 # The transient development key lives only in memory and cannot sign updates.
 # Use a separately managed release key for distribution.
-python3 "$PROJECT_ROOT/scripts/sign-android-development.py" "$BT/apksigner" "$WORK/aligned.apk" "$PROJECT_ROOT/build/android/NodeMonitor-development-arm64.apk"
-"$BT/apksigner" verify "$PROJECT_ROOT/build/android/NodeMonitor-development-arm64.apk"
-printf 'Android development APK: %s\n' "$PROJECT_ROOT/build/android/NodeMonitor-development-arm64.apk"
+python3 "$PROJECT_ROOT/scripts/sign-android-development.py" "$BT/apksigner" "$WORK/aligned.apk" "$ANDROID_OUTPUT"
+"$BT/apksigner" verify "$ANDROID_OUTPUT"
+printf 'Android development APK: %s\n' "$ANDROID_OUTPUT"

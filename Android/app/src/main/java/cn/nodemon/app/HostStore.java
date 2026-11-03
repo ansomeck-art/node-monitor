@@ -22,7 +22,7 @@ final class HostStore {
     void save(JSONArray hosts) { prefs.edit().putString("list", hosts.toString()).apply(); }
     JSONObject widgetHost(JSONArray hosts) { String id=prefs.getString("widget_host", ""); for(int i=0;i<hosts.length();i++) { JSONObject host=hosts.optJSONObject(i); if(host!=null && id.equals(host.optString("id"))) return host; } return hosts.optJSONObject(0); }
     void setWidgetHost(String id) { prefs.edit().putString("widget_host", id).apply(); }
-    boolean dark() { return prefs.getBoolean("dark", true); }
+    boolean dark() { return prefs.getBoolean("dark", false); }
     void setDark(boolean value) { prefs.edit().putBoolean("dark", value).apply(); }
     private SecretKey key() throws Exception {
         KeyStore store = KeyStore.getInstance("AndroidKeyStore"); store.load(null);

@@ -1,5 +1,33 @@
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/widget_root" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:background="@drawable/widget_background" android:padding="16dp">
- <TextView android:id="@+id/widget_title" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#FFFFFF" android:textSize="16sp" android:textStyle="bold" android:text="节点监控"/>
- <TextView android:id="@+id/widget_status" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#69D8D1" android:textSize="11sp" android:layout_marginTop="4dp" android:text="点击打开"/>
- <TextView android:id="@+id/widget_metrics" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#E7EEF8" android:textSize="12sp" android:lineSpacingExtra="4dp" android:layout_marginTop="9dp" android:text="添加主机后显示监控数据"/>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/widget_root" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:background="@drawable/widget_background" android:padding="14dp">
+ <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+  <TextView android:layout_width="30dp" android:layout_height="30dp" android:gravity="center" android:background="@drawable/widget_logo" android:text="◉" android:textSize="16sp" android:textColor="#CEF18C"/>
+  <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="8dp" android:orientation="vertical">
+   <TextView android:id="@+id/widget_title" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#202820" android:textSize="13sp" android:textStyle="bold" android:singleLine="true" android:ellipsize="end" android:text="节点监控"/>
+   <TextView android:id="@+id/widget_status" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#849080" android:textSize="10sp" android:singleLine="true" android:ellipsize="end" android:text="点击打开"/>
+  </LinearLayout>
+ </LinearLayout>
+ <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical" android:layout_marginTop="7dp">
+  <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+   <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="horizontal" android:gravity="center_vertical">
+    <ImageView android:id="@+id/widget_cpu_1_ring" android:layout_width="48dp" android:layout_height="48dp" android:contentDescription="CPU 1"/>
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:layout_marginStart="5dp"><TextView android:id="@+id/widget_cpu_1_name" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="CPU 1" android:textColor="#202820" android:textStyle="bold" android:textSize="11sp" android:singleLine="true"/><TextView android:id="@+id/widget_cpu_1_temp" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="—" android:textColor="#8B9688" android:textSize="10sp"/></LinearLayout>
+   </LinearLayout>
+   <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="horizontal" android:gravity="center_vertical">
+    <ImageView android:id="@+id/widget_cpu_2_ring" android:layout_width="48dp" android:layout_height="48dp" android:contentDescription="CPU 2"/>
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:layout_marginStart="5dp"><TextView android:id="@+id/widget_cpu_2_name" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="CPU 2" android:textColor="#202820" android:textStyle="bold" android:textSize="11sp" android:singleLine="true"/><TextView android:id="@+id/widget_cpu_2_temp" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="—" android:textColor="#8B9688" android:textSize="10sp"/></LinearLayout>
+   </LinearLayout>
+  </LinearLayout>
+  <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="6dp">
+   <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="horizontal" android:gravity="center_vertical">
+    <ImageView android:id="@+id/widget_gpu_1_ring" android:layout_width="48dp" android:layout_height="48dp" android:contentDescription="GPU 1"/>
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:layout_marginStart="5dp"><TextView android:id="@+id/widget_gpu_1_name" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="GPU 1" android:textColor="#202820" android:textStyle="bold" android:textSize="11sp" android:singleLine="true"/><TextView android:id="@+id/widget_gpu_1_temp" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="—" android:textColor="#8B9688" android:textSize="10sp"/></LinearLayout>
+   </LinearLayout>
+   <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="horizontal" android:gravity="center_vertical">
+    <ImageView android:id="@+id/widget_gpu_2_ring" android:layout_width="48dp" android:layout_height="48dp" android:contentDescription="GPU 2"/>
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:layout_marginStart="5dp"><TextView android:id="@+id/widget_gpu_2_name" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="GPU 2" android:textColor="#202820" android:textStyle="bold" android:textSize="11sp" android:singleLine="true"/><TextView android:id="@+id/widget_gpu_2_temp" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="—" android:textColor="#8B9688" android:textSize="10sp"/></LinearLayout>
+   </LinearLayout>
+  </LinearLayout>
+ </LinearLayout>
+ <TextView android:layout_width="match_parent" android:layout_height="1dp" android:background="#ECF0EA" android:layout_marginTop="7dp"/>
+ <TextView android:id="@+id/widget_memory" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="7dp" android:text="内存  —" android:textColor="#778373" android:textSize="10sp" android:singleLine="true" android:ellipsize="end"/>
 </LinearLayout>
