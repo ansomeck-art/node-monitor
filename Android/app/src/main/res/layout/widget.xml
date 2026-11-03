@@ -16,28 +16,64 @@
     <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
         android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginTop="3dp">
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <ImageView android:id="@+id/widget_cpu_1_ring" android:layout_width="44dp" android:layout_height="44dp" android:contentDescription="CPU 1"/>
+            <FrameLayout android:layout_width="44dp" android:layout_height="44dp">
+                <ImageView android:id="@+id/widget_cpu_1_ring" android:layout_width="match_parent" android:layout_height="match_parent"/>
+                <ViewFlipper android:id="@+id/widget_cpu_1_flipper" android:layout_width="match_parent" android:layout_height="match_parent"
+                    android:autoStart="true" android:flipInterval="8000" android:animateFirstView="true" android:inAnimation="@anim/widget_ring_rotate">
+                    <ImageView android:id="@+id/widget_cpu_1_rotor_a" android:layout_width="match_parent" android:layout_height="match_parent"/>
+                    <ImageView android:id="@+id/widget_cpu_1_rotor_b" android:layout_width="match_parent" android:layout_height="match_parent"/>
+                </ViewFlipper>
+                <TextView android:id="@+id/widget_cpu_1_percent" android:layout_width="match_parent" android:layout_height="match_parent" android:gravity="center"
+                    android:text="—" android:textSize="10sp" android:textColor="#202820" android:textStyle="bold" android:includeFontPadding="false"/>
+            </FrameLayout>
             <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center" android:layout_marginTop="2dp">
                 <TextView android:id="@+id/widget_cpu_1_name" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="CPU 1" android:textColor="#344039" android:textStyle="bold" android:textSize="10sp" android:singleLine="true" android:includeFontPadding="false"/>
                 <TextView android:id="@+id/widget_cpu_1_temp" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="3dp" android:text="—" android:textColor="#829081" android:textSize="10sp" android:singleLine="true" android:includeFontPadding="false"/>
             </LinearLayout>
         </LinearLayout>
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <ImageView android:id="@+id/widget_cpu_2_ring" android:layout_width="44dp" android:layout_height="44dp" android:contentDescription="CPU 2"/>
+            <FrameLayout android:layout_width="44dp" android:layout_height="44dp">
+                <ImageView android:id="@+id/widget_cpu_2_ring" android:layout_width="match_parent" android:layout_height="match_parent"/>
+                <ViewFlipper android:id="@+id/widget_cpu_2_flipper" android:layout_width="match_parent" android:layout_height="match_parent"
+                    android:autoStart="true" android:flipInterval="8000" android:animateFirstView="true" android:inAnimation="@anim/widget_ring_rotate">
+                    <ImageView android:id="@+id/widget_cpu_2_rotor_a" android:layout_width="match_parent" android:layout_height="match_parent"/>
+                    <ImageView android:id="@+id/widget_cpu_2_rotor_b" android:layout_width="match_parent" android:layout_height="match_parent"/>
+                </ViewFlipper>
+                <TextView android:id="@+id/widget_cpu_2_percent" android:layout_width="match_parent" android:layout_height="match_parent" android:gravity="center"
+                    android:text="—" android:textSize="10sp" android:textColor="#202820" android:textStyle="bold" android:includeFontPadding="false"/>
+            </FrameLayout>
             <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center" android:layout_marginTop="2dp">
                 <TextView android:id="@+id/widget_cpu_2_name" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="CPU 2" android:textColor="#344039" android:textStyle="bold" android:textSize="10sp" android:singleLine="true" android:includeFontPadding="false"/>
                 <TextView android:id="@+id/widget_cpu_2_temp" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="3dp" android:text="—" android:textColor="#829081" android:textSize="10sp" android:singleLine="true" android:includeFontPadding="false"/>
             </LinearLayout>
         </LinearLayout>
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <ImageView android:id="@+id/widget_gpu_1_ring" android:layout_width="44dp" android:layout_height="44dp" android:contentDescription="GPU 1"/>
+            <FrameLayout android:layout_width="44dp" android:layout_height="44dp">
+                <ImageView android:id="@+id/widget_gpu_1_ring" android:layout_width="match_parent" android:layout_height="match_parent"/>
+                <ViewFlipper android:id="@+id/widget_gpu_1_flipper" android:layout_width="match_parent" android:layout_height="match_parent"
+                    android:autoStart="true" android:flipInterval="8000" android:animateFirstView="true" android:inAnimation="@anim/widget_ring_rotate">
+                    <ImageView android:id="@+id/widget_gpu_1_rotor_a" android:layout_width="match_parent" android:layout_height="match_parent"/>
+                    <ImageView android:id="@+id/widget_gpu_1_rotor_b" android:layout_width="match_parent" android:layout_height="match_parent"/>
+                </ViewFlipper>
+                <TextView android:id="@+id/widget_gpu_1_percent" android:layout_width="match_parent" android:layout_height="match_parent" android:gravity="center"
+                    android:text="—" android:textSize="10sp" android:textColor="#202820" android:textStyle="bold" android:includeFontPadding="false"/>
+            </FrameLayout>
             <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center" android:layout_marginTop="2dp">
                 <TextView android:id="@+id/widget_gpu_1_name" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="GPU 1" android:textColor="#344039" android:textStyle="bold" android:textSize="10sp" android:singleLine="true" android:includeFontPadding="false"/>
                 <TextView android:id="@+id/widget_gpu_1_temp" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="3dp" android:text="—" android:textColor="#829081" android:textSize="10sp" android:singleLine="true" android:includeFontPadding="false"/>
             </LinearLayout>
         </LinearLayout>
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <ImageView android:id="@+id/widget_gpu_2_ring" android:layout_width="44dp" android:layout_height="44dp" android:contentDescription="GPU 2"/>
+            <FrameLayout android:layout_width="44dp" android:layout_height="44dp">
+                <ImageView android:id="@+id/widget_gpu_2_ring" android:layout_width="match_parent" android:layout_height="match_parent"/>
+                <ViewFlipper android:id="@+id/widget_gpu_2_flipper" android:layout_width="match_parent" android:layout_height="match_parent"
+                    android:autoStart="true" android:flipInterval="8000" android:animateFirstView="true" android:inAnimation="@anim/widget_ring_rotate">
+                    <ImageView android:id="@+id/widget_gpu_2_rotor_a" android:layout_width="match_parent" android:layout_height="match_parent"/>
+                    <ImageView android:id="@+id/widget_gpu_2_rotor_b" android:layout_width="match_parent" android:layout_height="match_parent"/>
+                </ViewFlipper>
+                <TextView android:id="@+id/widget_gpu_2_percent" android:layout_width="match_parent" android:layout_height="match_parent" android:gravity="center"
+                    android:text="—" android:textSize="10sp" android:textColor="#202820" android:textStyle="bold" android:includeFontPadding="false"/>
+            </FrameLayout>
             <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center" android:layout_marginTop="2dp">
                 <TextView android:id="@+id/widget_gpu_2_name" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="GPU 2" android:textColor="#344039" android:textStyle="bold" android:textSize="10sp" android:singleLine="true" android:includeFontPadding="false"/>
                 <TextView android:id="@+id/widget_gpu_2_temp" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="3dp" android:text="—" android:textColor="#829081" android:textSize="10sp" android:singleLine="true" android:includeFontPadding="false"/>

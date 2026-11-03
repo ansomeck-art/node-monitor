@@ -13,11 +13,9 @@ import android.graphics.Canvas;
 import android.graphics.DashPathEffect;
 import android.graphics.Paint;
 import android.graphics.RectF;
-import android.graphics.Typeface;
 import android.widget.RemoteViews;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import java.util.Locale;
 
 public final class MonitorWidget extends AppWidgetProvider {
     static final int JOB_ID = 9274;
@@ -31,20 +29,35 @@ public final class MonitorWidget extends AppWidgetProvider {
         JobInfo job = new JobInfo.Builder(JOB_ID, new ComponentName(context, WidgetJob.class)).setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY).setOverrideDeadline(10_000).build();
         ((JobScheduler)context.getSystemService(Context.JOB_SCHEDULER_SERVICE)).schedule(job);
     }
-    private static Bitmap gauge(Context context, Double value) {
+    private static Bitmap gaugeTrack(Context context) {
         float scale=context.getResources().getDisplayMetrics().density; int size=Math.round(44*scale);
         Bitmap bitmap=Bitmap.createBitmap(size,size,Bitmap.Config.ARGB_8888); Canvas canvas=new Canvas(bitmap); Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
         float center=size/2f, outer=center-3*scale, radius=outer-5*scale;
         p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(scale); p.setColor(0xffdce5d8); p.setPathEffect(new DashPathEffect(new float[]{2*scale,2.5f*scale},0)); canvas.drawCircle(center,center,outer,p);
         p.setPathEffect(null); p.setStrokeWidth(3*scale); p.setColor(0xffe8ede5); canvas.drawCircle(center,center,radius,p);
-        if(value!=null && value>0) {p.setColor(0xff355b38);p.setStrokeCap(Paint.Cap.ROUND);canvas.drawArc(new RectF(center-radius,center-radius,center+radius,center+radius),-90,(float)(3.6*Math.max(0,Math.min(100,value))),false,p);}
-        p.setStyle(Paint.Style.FILL); p.setColor(0xffa6d957); canvas.drawCircle(center,center-outer,2.5f*scale,p);
-        p.setTextAlign(Paint.Align.CENTER); p.setTypeface(Typeface.create(Typeface.DEFAULT,Typeface.BOLD)); p.setTextSize(10*context.getResources().getDisplayMetrics().scaledDensity); p.setColor(0xff202820);
-        canvas.drawText(value==null?"—":String.format(Locale.ROOT,"%.0f%%",value),center,center-(p.ascent()+p.descent())/2,p); return bitmap;
+        return bitmap;
     }
-    private static void slot(Context context,RemoteViews view,int ring,int title,int temp,String name,JSONObject value) {
-        view.setImageViewBitmap(ring,gauge(context,Metrics.number(value,"usagePercent"))); view.setTextViewText(title,name); view.setTextViewText(temp,Metrics.temp(value,"temperatureCelsius"));
-        view.setContentDescription(ring,name+"，使用率 "+Metrics.percent(value,"usagePercent")+"，温度 "+Metrics.temp(value,"temperatureCelsius"));
+    private static Bitmap gaugeRotor(Context context, Double value) {
+        float scale=context.getResources().getDisplayMetrics().density; int size=Math.round(44*scale);
+        Bitmap bitmap=Bitmap.createBitmap(size,size,Bitmap.Config.ARGB_8888); Canvas canvas=new Canvas(bitmap); Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
+        float center=size/2f, outer=center-3*scale, radius=outer-5*scale;
+        if(value!=null) {
+            double percent=Math.max(0,Math.min(100,value));
+            p.setColor(0xff355b38); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(3*scale); p.setStrokeCap(Paint.Cap.ROUND);
+            if(percent>0) canvas.drawArc(new RectF(center-radius,center-radius,center+radius,center+radius),-90,(float)(3.6*percent),false,p);
+            // Keep an inner marker visible even when the arc is 0% or a full circle.
+            p.setStyle(Paint.Style.FILL); p.setColor(0xff82a96d); canvas.drawCircle(center,center-radius,1.5f*scale,p);
+        }
+        p.setStyle(Paint.Style.FILL); p.setColor(0xffa6d957); canvas.drawCircle(center,center-outer,2.5f*scale,p);
+        return bitmap;
+    }
+    private static void slot(Context context,RemoteViews view,Bitmap track,int ring,int flipper,int rotorA,int rotorB,int percent,int title,int temp,String name,JSONObject value) {
+        Bitmap rotor=gaugeRotor(context,Metrics.number(value,"usagePercent"));
+        view.setImageViewBitmap(ring,track); view.setImageViewBitmap(rotorA,rotor); view.setImageViewBitmap(rotorB,rotor);
+        // Trigger the first rotation as soon as the launcher inflates the widget.
+        view.setDisplayedChild(flipper,1);
+        view.setTextViewText(percent,Metrics.percent(value,"usagePercent")); view.setTextViewText(title,name); view.setTextViewText(temp,Metrics.temp(value,"temperatureCelsius"));
+        view.setContentDescription(flipper,name+"，使用率 "+Metrics.percent(value,"usagePercent")+"，温度 "+Metrics.temp(value,"temperatureCelsius"));
     }
     static RemoteViews buildView(Context context, JSONObject host, JSONObject data, String status) {
         RemoteViews view = new RemoteViews(context.getPackageName(), R.layout.widget);
@@ -52,10 +65,11 @@ public final class MonitorWidget extends AppWidgetProvider {
         JSONObject cpu=data==null?null:data.optJSONObject("cpu"); JSONArray packages=cpu==null?null:cpu.optJSONArray("packages"), gpus=data==null?null:data.optJSONArray("gpus");
         JSONObject cpu1=packages!=null && packages.length()>0?packages.optJSONObject(0):cpu, cpu2=packages!=null && packages.length()>1?packages.optJSONObject(1):null;
         JSONObject gpu1=gpus!=null && gpus.length()>0?Metrics.freshGpu(data,gpus.optJSONObject(0)):null, gpu2=gpus!=null && gpus.length()>1?Metrics.freshGpu(data,gpus.optJSONObject(1)):null;
-        slot(context,view,R.id.widget_cpu_1_ring,R.id.widget_cpu_1_name,R.id.widget_cpu_1_temp,packages!=null && packages.length()>0?"CPU 1":"CPU 总体",cpu1);
-        slot(context,view,R.id.widget_cpu_2_ring,R.id.widget_cpu_2_name,R.id.widget_cpu_2_temp,"CPU 2",cpu2);
-        slot(context,view,R.id.widget_gpu_1_ring,R.id.widget_gpu_1_name,R.id.widget_gpu_1_temp,"GPU 1",gpu1);
-        slot(context,view,R.id.widget_gpu_2_ring,R.id.widget_gpu_2_name,R.id.widget_gpu_2_temp,"GPU 2",gpu2);
+        Bitmap track=gaugeTrack(context);
+        slot(context,view,track,R.id.widget_cpu_1_ring,R.id.widget_cpu_1_flipper,R.id.widget_cpu_1_rotor_a,R.id.widget_cpu_1_rotor_b,R.id.widget_cpu_1_percent,R.id.widget_cpu_1_name,R.id.widget_cpu_1_temp,packages!=null && packages.length()>0?"CPU 1":"CPU 总体",cpu1);
+        slot(context,view,track,R.id.widget_cpu_2_ring,R.id.widget_cpu_2_flipper,R.id.widget_cpu_2_rotor_a,R.id.widget_cpu_2_rotor_b,R.id.widget_cpu_2_percent,R.id.widget_cpu_2_name,R.id.widget_cpu_2_temp,"CPU 2",cpu2);
+        slot(context,view,track,R.id.widget_gpu_1_ring,R.id.widget_gpu_1_flipper,R.id.widget_gpu_1_rotor_a,R.id.widget_gpu_1_rotor_b,R.id.widget_gpu_1_percent,R.id.widget_gpu_1_name,R.id.widget_gpu_1_temp,"GPU 1",gpu1);
+        slot(context,view,track,R.id.widget_gpu_2_ring,R.id.widget_gpu_2_flipper,R.id.widget_gpu_2_rotor_a,R.id.widget_gpu_2_rotor_b,R.id.widget_gpu_2_percent,R.id.widget_gpu_2_name,R.id.widget_gpu_2_temp,"GPU 2",gpu2);
         int more=(packages==null?0:Math.max(0,packages.length()-2))+(gpus==null?0:Math.max(0,gpus.length()-2));
         view.setTextViewText(R.id.widget_status,status+(more>0?" · +"+more+" 更多":""));
         view.setTextColor(R.id.widget_status,status.contains("离线")?0xffa86555:status.contains("在线")?0xff5d8750:0xff708268);
