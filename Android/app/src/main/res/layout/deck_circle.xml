@@ -1,0 +1,7 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/deck_root" android:layout_width="match_parent" android:layout_height="match_parent">
+ <ImageView android:id="@+id/deck_content" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="CPU 峰值"/>
+ <ViewFlipper android:id="@+id/deck_rotor" android:layout_width="match_parent" android:layout_height="match_parent" android:autoStart="true" android:flipInterval="12000" android:animateFirstView="true" android:inAnimation="@anim/deck_orbit">
+  <ImageView android:id="@+id/deck_rotor_a" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter"/>
+  <ImageView android:id="@+id/deck_rotor_b" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter"/>
+ </ViewFlipper>
+</FrameLayout>

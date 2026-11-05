@@ -36,6 +36,8 @@ func main() {
 	interval := flag.Duration("interval", 5*time.Second, "base collection interval, minimum 2s")
 	gpuInterval := flag.Duration("gpu-interval", 15*time.Second, "GPU query interval, minimum base interval")
 	gpuOff := flag.Bool("no-gpu", false, "disable GPU queries (including nvidia-smi)")
+	processes := flag.Bool("processes", false, "Linux: collect top five process names, PIDs, normalized CPU usage and resident memory (no command lines)")
+	services := flag.String("services", "", "Linux: comma-separated systemd services to read, up to 16 (for example docker,nginx,tailscaled)")
 	cert := flag.String("tls-cert", "", "PEM TLS certificate path")
 	key := flag.String("tls-key", "", "PEM TLS private-key path")
 	plain := flag.Bool("allow-http-lan", false, "explicitly allow plaintext on a trusted LAN/VPN; otherwise TLS or loopback required")
@@ -64,6 +66,14 @@ func main() {
 		log.Fatal("--tailscale-owner-auth requires a Tailscale listener")
 	}
 	collector := metrics.NewCollector(*gpuInterval, !*gpuOff)
+	units, err := metrics.ServiceUnits(*services)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if (*processes || len(units) > 0) && runtime.GOOS != "linux" {
+		log.Fatal("--processes and --services currently require Linux")
+	}
+	collector.ConfigureDiagnostics(*processes, units)
 	collect := func(now time.Time) metrics.Snapshot {
 		if *demo {
 			return metrics.DemoSnapshot(now, interval.Seconds())

@@ -52,6 +52,10 @@ final class MonitorClient {
             } finally { conn.disconnect(); }
         }
         if (result.optInt("schemaVersion") != 1) throw new Exception("采集端协议版本不兼容");
+        long sampled;try {sampled=java.time.Instant.parse(result.getString("sampledAt")).toEpochMilli();}catch(Exception e){throw new Exception("采样时间无效");}
+        long now=System.currentTimeMillis();
+        double interval=result.optDouble("sampleIntervalSeconds",5);
+        if(!Double.isFinite(interval) || interval<0 || sampled<=0 || now-sampled>Math.max(30000,interval*3000) || sampled-now>60000)throw new Exception("采样已过期或服务器时间异常，请检查采集端和系统时间");
         return result;
     }
 }

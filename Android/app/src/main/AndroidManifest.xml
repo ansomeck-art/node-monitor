@@ -1,9 +1,25 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="cn.nodemon.app">
  <uses-permission android:name="android.permission.INTERNET"/>
  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+ <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+ <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+ <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+ <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
+ <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE"/>
+ <queries><intent><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.HOME"/></intent></queries>
  <application android:label="节点监控" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:usesCleartextTraffic="true" android:allowBackup="false" android:extractNativeLibs="true" android:icon="@drawable/icon">
-  <activity android:name="cn.nodemon.app.MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
-  <receiver android:name="cn.nodemon.app.MonitorWidget" android:exported="true" android:label="节点监控"><intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE"/></intent-filter><meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_info"/></receiver>
+  <activity android:name="cn.nodemon.app.MainActivity" android:exported="true" android:configChanges="uiMode"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
+  <activity android:name="cn.nodemon.app.WidgetGalleryActivity" android:exported="false" android:label="桌面挂件"/>
+  <activity android:name="cn.nodemon.app.WidgetConfigureActivity" android:exported="true" android:excludeFromRecents="true"><intent-filter><action android:name="android.appwidget.action.APPWIDGET_CONFIGURE"/></intent-filter></activity>
+  <receiver android:name="cn.nodemon.app.MonitorWidget" android:exported="true" android:label="节点监控 · 状态全景 · 4×2"><intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE"/></intent-filter><meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_info"/></receiver>
+  <receiver android:name="cn.nodemon.app.CompactWidget" android:exported="true" android:label="节点监控 · 设备速览 · 2×2"><intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE"/></intent-filter><meta-data android:name="android.appwidget.provider" android:resource="@xml/deck_compact_info"/></receiver>
+  <receiver android:name="cn.nodemon.app.SummaryWidget" android:exported="true" android:label="节点监控 · 全部节点 · 2×2"><intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE"/></intent-filter><meta-data android:name="android.appwidget.provider" android:resource="@xml/deck_summary_info"/></receiver>
+  <receiver android:name="cn.nodemon.app.DashboardWidget" android:exported="true" android:label="节点监控 · 控制面板 · 4×4"><intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE"/></intent-filter><meta-data android:name="android.appwidget.provider" android:resource="@xml/deck_dashboard_info"/></receiver>
+  <receiver android:name="cn.nodemon.app.LockRectWidget" android:exported="true" android:label="节点监控 · 矩形配件"><intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE"/></intent-filter><meta-data android:name="android.appwidget.provider" android:resource="@xml/deck_rect_info"/></receiver>
+  <receiver android:name="cn.nodemon.app.LockCircleWidget" android:exported="true" android:label="节点监控 · 圆形配件"><intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE"/></intent-filter><meta-data android:name="android.appwidget.provider" android:resource="@xml/deck_circle_info"/></receiver>
+  <receiver android:name="cn.nodemon.app.WidgetActionReceiver" android:exported="false"/>
   <service android:name="cn.nodemon.app.WidgetJob" android:exported="false" android:permission="android.permission.BIND_JOB_SERVICE"/>
+  <service android:name="cn.nodemon.app.MonitorJob" android:exported="false" android:permission="android.permission.BIND_JOB_SERVICE"/>
+  <service android:name="cn.nodemon.app.WidgetLiveService" android:exported="false" android:foregroundServiceType="connectedDevice"/>
  </application>
 </manifest>

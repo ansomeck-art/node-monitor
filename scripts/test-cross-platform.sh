@@ -11,6 +11,9 @@ ANDROID_JAR="$ANDROID_SDK/platforms/android-36/android.jar"
 ANDROID_JAVA="$PROJECT_ROOT/Android/app/src/main/java/cn/nodemon/app"
 ANDROID_TEST="$PROJECT_ROOT/Android/tests/cn/nodemon/app"
 mkdir -p "$TEST_DIR"
-"$JAVA_HOME/bin/javac" -classpath "$ANDROID_JAR" -d "$TEST_DIR" "$ANDROID_JAVA/HostStore.java" "$ANDROID_JAVA/TailnetBridge.java" "$ANDROID_JAVA/MonitorClient.java" "$ANDROID_JAVA/MetricFreshness.java" "$ANDROID_TEST/MonitorClientTest.java" "$ANDROID_TEST/MetricFreshnessTest.java"
+"$JAVA_HOME/bin/javac" -classpath "$ANDROID_JAR" -d "$TEST_DIR" "$ANDROID_JAVA/HostStore.java" "$ANDROID_JAVA/TailnetBridge.java" "$ANDROID_JAVA/MonitorClient.java" "$ANDROID_JAVA/MetricFreshness.java" "$ANDROID_JAVA/PollCoordinator.java" "$ANDROID_JAVA/AlertTracker.java" "$ANDROID_JAVA/MonitorSettings.java" "$ANDROID_TEST/MonitorClientTest.java" "$ANDROID_TEST/MetricFreshnessTest.java" "$ANDROID_TEST/AlertTrackerTest.java" "$ANDROID_TEST/PollCoordinatorTest.java"
 "$JAVA_HOME/bin/java" -classpath "$TEST_DIR:$ANDROID_JAR" cn.nodemon.app.MonitorClientTest
 "$JAVA_HOME/bin/java" -classpath "$TEST_DIR:$ANDROID_JAR" cn.nodemon.app.MetricFreshnessTest
+"$JAVA_HOME/bin/java" -classpath "$TEST_DIR:$ANDROID_JAR" cn.nodemon.app.AlertTrackerTest
+
+"$JAVA_HOME/bin/java" -classpath "$TEST_DIR:$ANDROID_JAR" cn.nodemon.app.PollCoordinatorTest

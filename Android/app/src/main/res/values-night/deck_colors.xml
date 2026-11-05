@@ -1,0 +1,5 @@
+<resources>
+ <color name="deck_surface">#EA171E19</color><color name="deck_border">#504B6053</color>
+ <color name="deck_ink">#E4EDE6</color><color name="deck_muted">#8F9F94</color><color name="deck_track">#303B32</color>
+ <color name="deck_accent">#81C8A7</color><color name="deck_pale">#293E31</color>
+</resources>

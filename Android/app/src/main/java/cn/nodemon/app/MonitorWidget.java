@@ -5,86 +5,81 @@ import android.app.job.JobInfo;
 import android.app.job.JobScheduler;
 import android.appwidget.AppWidgetManager;
 import android.appwidget.AppWidgetProvider;
+import android.appwidget.AppWidgetProviderInfo;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.DashPathEffect;
-import android.graphics.Paint;
-import android.graphics.RectF;
+import android.os.Bundle;
+import android.view.View;
 import android.widget.RemoteViews;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
-public final class MonitorWidget extends AppWidgetProvider {
-    static final int JOB_ID = 9274;
-    static final String EXTRA_HOST_ID = "widget_host_id";
-    @Override public void onUpdate(Context context, AppWidgetManager manager, int[] ids) {
-        HostStore store=new HostStore(context); JSONObject host=store.widgetHost(store.hosts());
-        update(context,host,null,host==null?"点击添加主机":"等待更新"); schedule(context);
+/** Shared lifecycle for six independently selectable, per-host widget providers. */
+public class MonitorWidget extends AppWidgetProvider {
+    static final int JOB_ID=9274;
+    static final String EXTRA_HOST_ID="widget_host_id";
+    static final String ACTION_REFRESH="cn.nodemon.app.WIDGET_REFRESH",ACTION_MUTE="cn.nodemon.app.WIDGET_MUTE",ACTION_PINNED="cn.nodemon.app.WIDGET_PINNED";
+    static final Class<?>[] PROVIDERS={CompactWidget.class,SummaryWidget.class,MonitorWidget.class,DashboardWidget.class,LockRectWidget.class,LockCircleWidget.class};
+    static final String[] NAMES={"设备速览 · 2×2","全部节点 · 2×2","状态全景 · 4×2","控制面板 · 4×4","矩形配件","圆形配件"};
+    private static final ExecutorService rendering=Executors.newSingleThreadExecutor();
+    private static final java.util.concurrent.atomic.AtomicBoolean renderQueued=new java.util.concurrent.atomic.AtomicBoolean();
+    private static final java.util.concurrent.atomic.AtomicBoolean renderDirty=new java.util.concurrent.atomic.AtomicBoolean();
+    static int count(Context c){int total=0;AppWidgetManager m=AppWidgetManager.getInstance(c);for(Class<?> p:PROVIDERS)total+=m.getAppWidgetIds(new ComponentName(c,p)).length;return total;}
+    @Override public void onUpdate(Context c,AppWidgetManager manager,int[] ids){updateAll(c);schedule(c);}
+    @Override public void onAppWidgetOptionsChanged(Context c,AppWidgetManager manager,int id,Bundle options){updateAll(c);}
+    @Override public void onDeleted(Context c,int[] ids){HostStore store=new HostStore(c);for(int id:ids)store.forgetWidget(id);updateAll(c);}
+    @Override public void onDisabled(Context c){if(count(c)==0){c.getSystemService(JobScheduler.class).cancel(JOB_ID);WidgetLiveService.stop(c);}}
+    @Override public void onReceive(Context c,Intent intent){
+        super.onReceive(c,intent);
     }
-    static void schedule(Context context) {
-        if (AppWidgetManager.getInstance(context).getAppWidgetIds(new ComponentName(context, MonitorWidget.class)).length == 0) return;
-        JobInfo job = new JobInfo.Builder(JOB_ID, new ComponentName(context, WidgetJob.class)).setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY).setOverrideDeadline(10_000).build();
-        ((JobScheduler)context.getSystemService(Context.JOB_SCHEDULER_SERVICE)).schedule(job);
-    }
-    private static Bitmap gaugeTrack(Context context) {
-        float scale=context.getResources().getDisplayMetrics().density; int size=Math.round(44*scale);
-        Bitmap bitmap=Bitmap.createBitmap(size,size,Bitmap.Config.ARGB_8888); Canvas canvas=new Canvas(bitmap); Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
-        float center=size/2f, outer=center-3*scale, radius=outer-5*scale;
-        p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(scale); p.setColor(0xffdce5d8); p.setPathEffect(new DashPathEffect(new float[]{2*scale,2.5f*scale},0)); canvas.drawCircle(center,center,outer,p);
-        p.setPathEffect(null); p.setStrokeWidth(3*scale); p.setColor(0xffe8ede5); canvas.drawCircle(center,center,radius,p);
-        return bitmap;
-    }
-    private static Bitmap gaugeRotor(Context context, Double value) {
-        float scale=context.getResources().getDisplayMetrics().density; int size=Math.round(44*scale);
-        Bitmap bitmap=Bitmap.createBitmap(size,size,Bitmap.Config.ARGB_8888); Canvas canvas=new Canvas(bitmap); Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
-        float center=size/2f, outer=center-3*scale, radius=outer-5*scale;
-        if(value!=null) {
-            double percent=Math.max(0,Math.min(100,value));
-            p.setColor(0xff355b38); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(3*scale); p.setStrokeCap(Paint.Cap.ROUND);
-            if(percent>0) canvas.drawArc(new RectF(center-radius,center-radius,center+radius,center+radius),-90,(float)(3.6*percent),false,p);
-            // Keep an inner marker visible even when the arc is 0% or a full circle.
-            p.setStyle(Paint.Style.FILL); p.setColor(0xff82a96d); canvas.drawCircle(center,center-radius,1.5f*scale,p);
+    static void handleAction(Context c,Intent intent){
+        String action=intent.getAction();if(!ACTION_REFRESH.equals(action)&&!ACTION_MUTE.equals(action)&&!ACTION_PINNED.equals(action))return;
+        int id=intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,-1);AppWidgetProviderInfo info=AppWidgetManager.getInstance(c).getAppWidgetInfo(id);
+        if(info==null||!info.provider.getPackageName().equals(c.getPackageName()))return;
+        if(ACTION_PINNED.equals(action)){
+            HostStore store=new HostStore(c);JSONArray hosts=store.hosts();String hostId=intent.getStringExtra(EXTRA_HOST_ID);for(int i=0;i<hosts.length();i++)if(hosts.optJSONObject(i)!=null&&hosts.optJSONObject(i).optString("id").equals(hostId)){store.bindWidget(id,hostId);updateAll(c);break;}
+        }else if(ACTION_REFRESH.equals(action)){
+            android.content.SharedPreferences p=c.getSharedPreferences("widget-actions",Context.MODE_PRIVATE);long now=System.currentTimeMillis();if(now-p.getLong("last_refresh",0)<5000)return;p.edit().putLong("last_refresh",now).apply();WidgetLiveService.ensureRunning(c);schedule(c);
+        }else{
+            HostStore store=new HostStore(c);JSONObject host=store.widgetHost(store.hosts(),id);if(host!=null){String hostId=host.optString("id");store.snooze(hostId,store.snoozed(hostId)?0:System.currentTimeMillis()+1800000L);updateAll(c);}
         }
-        p.setStyle(Paint.Style.FILL); p.setColor(0xffa6d957); canvas.drawCircle(center,center-outer,2.5f*scale,p);
-        return bitmap;
     }
-    private static void slot(Context context,RemoteViews view,Bitmap track,int ring,int flipper,int rotorA,int rotorB,int percent,int title,int temp,String name,JSONObject value) {
-        Bitmap rotor=gaugeRotor(context,Metrics.number(value,"usagePercent"));
-        view.setImageViewBitmap(ring,track); view.setImageViewBitmap(rotorA,rotor); view.setImageViewBitmap(rotorB,rotor);
-        // Trigger the first rotation as soon as the launcher inflates the widget.
-        view.setDisplayedChild(flipper,1);
-        view.setTextViewText(percent,Metrics.percent(value,"usagePercent")); view.setTextViewText(title,name); view.setTextViewText(temp,Metrics.temp(value,"temperatureCelsius"));
-        view.setContentDescription(flipper,name+"，使用率 "+Metrics.percent(value,"usagePercent")+"，温度 "+Metrics.temp(value,"temperatureCelsius"));
+    static void schedule(Context c){if(count(c)==0)return;JobScheduler scheduler=c.getSystemService(JobScheduler.class);scheduler.schedule(new JobInfo.Builder(JOB_ID,new ComponentName(c,WidgetJob.class)).setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY).setOverrideDeadline(1000).build());}
+    static void update(Context c,JSONObject host,JSONObject data,String status){updateAll(c);}
+    static void updateAll(Context context){Context c=context.getApplicationContext();if(count(c)==0)return;renderDirty.set(true);if(!renderQueued.compareAndSet(false,true))return;rendering.execute(()->{
+        try{do{renderDirty.set(false);AppWidgetManager m=AppWidgetManager.getInstance(c);for(int type=0;type<PROVIDERS.length;type++)for(int id:m.getAppWidgetIds(new ComponentName(c,PROVIDERS[type])))try{m.updateAppWidget(id,buildView(c,type,id,m.getAppWidgetOptions(id)));}catch(RuntimeException ignored){/* Launcher can remove a widget during rendering. */}}while(renderDirty.get());}
+        finally{renderQueued.set(false);if(renderDirty.get())updateAll(c);}
+    });}
+    static DeckWidgetRenderer.State state(Context c,int type,int widgetId){
+        HostStore store=new HostStore(c);JSONArray hosts=store.hosts();MonitorDatabase db=MonitorDatabase.get(c);DeckWidgetRenderer.State s=new DeckWidgetRenderer.State();
+        s.host=type==1?null:store.widgetHost(hosts,widgetId);s.totalHosts=hosts.length();s.intervalSeconds=new MonitorSettings(c).interval();s.refreshMode=WidgetLiveService.isRunning()?"15 秒实时刷新":new MonitorSettings(c).liveWidgets()?"等待实时刷新":"系统定时更新";
+        int offlineFailures=new MonitorSettings(c).failures();for(int i=0;i<hosts.length();i++){JSONObject h=hosts.optJSONObject(i);if(h==null)continue;String id=h.optString("id");JSONObject cache=db.cached(id);int failures=db.failures(id);if(cache!=null&&failures==0&&fresh(cache))s.onlineHosts++;else if(failures>=offlineFailures)s.offlineHosts++;}
+        String hostId=s.host==null?"":s.host.optString("id");s.snapshot=s.host==null?null:db.cached(hostId);
+        s.online=type==1?s.onlineHosts>0:s.snapshot!=null&&db.failures(hostId)==0;s.stale=type!=1&&s.online&&!fresh(s.snapshot);s.activeAlerts=db.active(hostId);s.muted=s.host!=null&&store.snoozed(hostId);s.summary=db.summary(hostId);s.history=s.host==null?java.util.Collections.emptyList():db.history(hostId,3600000);
+        for(MonitorDatabase.Event event:db.events())if(event.ended==0&&(type==1||event.host.equals(hostId))){s.alertTitle=event.title;break;}
+        return s;
     }
-    static RemoteViews buildView(Context context, JSONObject host, JSONObject data, String status) {
-        RemoteViews view = new RemoteViews(context.getPackageName(), R.layout.widget);
-        view.setTextViewText(R.id.widget_title, host == null ? "节点监控" : host.optString("name"));
-        JSONObject cpu=data==null?null:data.optJSONObject("cpu"); JSONArray packages=cpu==null?null:cpu.optJSONArray("packages"), gpus=data==null?null:data.optJSONArray("gpus");
-        JSONObject cpu1=packages!=null && packages.length()>0?packages.optJSONObject(0):cpu, cpu2=packages!=null && packages.length()>1?packages.optJSONObject(1):null;
-        JSONObject gpu1=gpus!=null && gpus.length()>0?Metrics.freshGpu(data,gpus.optJSONObject(0)):null, gpu2=gpus!=null && gpus.length()>1?Metrics.freshGpu(data,gpus.optJSONObject(1)):null;
-        Bitmap track=gaugeTrack(context);
-        slot(context,view,track,R.id.widget_cpu_1_ring,R.id.widget_cpu_1_flipper,R.id.widget_cpu_1_rotor_a,R.id.widget_cpu_1_rotor_b,R.id.widget_cpu_1_percent,R.id.widget_cpu_1_name,R.id.widget_cpu_1_temp,packages!=null && packages.length()>0?"CPU 1":"CPU 总体",cpu1);
-        slot(context,view,track,R.id.widget_cpu_2_ring,R.id.widget_cpu_2_flipper,R.id.widget_cpu_2_rotor_a,R.id.widget_cpu_2_rotor_b,R.id.widget_cpu_2_percent,R.id.widget_cpu_2_name,R.id.widget_cpu_2_temp,"CPU 2",cpu2);
-        slot(context,view,track,R.id.widget_gpu_1_ring,R.id.widget_gpu_1_flipper,R.id.widget_gpu_1_rotor_a,R.id.widget_gpu_1_rotor_b,R.id.widget_gpu_1_percent,R.id.widget_gpu_1_name,R.id.widget_gpu_1_temp,"GPU 1",gpu1);
-        slot(context,view,track,R.id.widget_gpu_2_ring,R.id.widget_gpu_2_flipper,R.id.widget_gpu_2_rotor_a,R.id.widget_gpu_2_rotor_b,R.id.widget_gpu_2_percent,R.id.widget_gpu_2_name,R.id.widget_gpu_2_temp,"GPU 2",gpu2);
-        int more=(packages==null?0:Math.max(0,packages.length()-2))+(gpus==null?0:Math.max(0,gpus.length()-2));
-        view.setTextViewText(R.id.widget_status,status+(more>0?" · +"+more+" 更多":""));
-        view.setTextColor(R.id.widget_status,status.contains("离线")?0xffa86555:status.contains("在线")?0xff5d8750:0xff708268);
-        JSONObject memory=data==null?null:data.optJSONObject("memory");
-        view.setTextViewText(R.id.widget_memory,"内存  "+Metrics.size(memory,"usedBytes")+" / "+Metrics.size(memory,"totalBytes"));
-        Double memoryUsage=Metrics.number(memory,"usagePercent");
-        if(memoryUsage==null) { Double used=Metrics.number(memory,"usedBytes"),total=Metrics.number(memory,"totalBytes"); if(used!=null && total!=null && total>0) memoryUsage=100*used/total; }
-        view.setProgressBar(R.id.widget_memory_progress,1000,memoryUsage==null?0:(int)(Math.max(0,Math.min(100,memoryUsage))*10),false);
-        Intent launch = new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        if(host!=null)launch.putExtra(EXTRA_HOST_ID,host.optString("id"));
-        PendingIntent pending = PendingIntent.getActivity(context, 0, launch, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        view.setOnClickPendingIntent(R.id.widget_root, pending);
-        return view;
+    private static boolean fresh(JSONObject s){return System.currentTimeMillis()-MonitorDatabase.sampleTime(s)<=Math.max(30000,s.optDouble("sampleIntervalSeconds",5)*3000);}
+    static RemoteViews buildView(Context c,int type,int widgetId,Bundle options){
+        int width=options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH,type<2?180:type==5?160:360);
+        int height=options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT,type<2?180:type==3?360:type==4?100:type==5?160:170);
+        if(width<=0)width=type<2?180:360;if(height<=0)height=type==3?360:180;
+        return view(c,type,state(c,type,widgetId),Math.max(100,width),Math.max(70,height),widgetId);
     }
-    static void update(Context context, JSONObject host, JSONObject data, String status) {
-        AppWidgetManager.getInstance(context).updateAppWidget(new ComponentName(context, MonitorWidget.class), buildView(context,host,data,status));
+    static RemoteViews view(Context c,int type,DeckWidgetRenderer.State s,int width,int height,int widgetId){
+        RemoteViews v=new RemoteViews(c.getPackageName(),type==5?R.layout.deck_circle:R.layout.deck_widget);
+        v.setInt(R.id.deck_root,"setBackgroundColor",android.graphics.Color.TRANSPARENT);v.setImageViewBitmap(R.id.deck_content,DeckWidgetRenderer.render(c,type,s,width,height));
+        v.setContentDescription(R.id.deck_content,DeckWidgetRenderer.description(type,s));
+        boolean motion=MonitorViews.motion()&&s.online&&!s.stale;
+        if(type==5){android.graphics.Bitmap rotor=DeckWidgetRenderer.rotor(c,s,Math.min(width,height));v.setImageViewBitmap(R.id.deck_rotor_a,rotor);v.setImageViewBitmap(R.id.deck_rotor_b,rotor);v.setViewVisibility(R.id.deck_rotor,motion?View.VISIBLE:View.GONE);if(motion)v.setDisplayedChild(R.id.deck_rotor,1);}
+        else{
+            boolean animate=MonitorViews.motion()&&(type==1?s.onlineHosts>0:motion);int dot=type==1&&s.offlineHosts>0?R.drawable.deck_error_dot:s.activeAlerts>0?R.drawable.deck_warning_dot:R.drawable.deck_live_dot;v.setImageViewResource(R.id.deck_dot_a,dot);v.setImageViewResource(R.id.deck_dot_b,dot);v.setViewVisibility(R.id.deck_pulse,animate?View.VISIBLE:View.GONE);if(animate)v.setDisplayedChild(R.id.deck_pulse,1);v.setViewVisibility(R.id.deck_glint,animate?View.VISIBLE:View.GONE);if(animate)v.setDisplayedChild(R.id.deck_glint,1);
+            v.setViewVisibility(R.id.deck_actions,type==3?View.VISIBLE:View.GONE);if(type==3){v.setTextViewText(R.id.deck_mute,s.muted?"恢复通知":"静音 30 分钟");v.setOnClickPendingIntent(R.id.deck_mute,broadcast(c,widgetId,ACTION_MUTE));v.setOnClickPendingIntent(R.id.deck_update,broadcast(c,widgetId,ACTION_REFRESH));}v.setOnClickPendingIntent(R.id.deck_refresh,broadcast(c,widgetId,ACTION_REFRESH));
+        }
+        Intent launch=new Intent(c,MainActivity.class).setAction("cn.nodemon.app.OPEN_WIDGET."+widgetId).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP);if(s.host!=null)launch.putExtra(EXTRA_HOST_ID,s.host.optString("id"));else launch.putExtra("open_devices",true);v.setOnClickPendingIntent(R.id.deck_root,PendingIntent.getActivity(c,widgetId,launch,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE));return v;
     }
+    private static PendingIntent broadcast(Context c,int id,String action){Intent intent=new Intent(c,WidgetActionReceiver.class).setAction(action).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,id);return PendingIntent.getBroadcast(c,id*10+(ACTION_MUTE.equals(action)?1:2),intent,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);}
 }

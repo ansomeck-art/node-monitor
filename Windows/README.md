@@ -1,5 +1,13 @@
 # Windows 采集端和监控客户端
 
+## 本次 Windows x64 开发包
+
+已提供 `build/NodeMonitor-Windows-x64.zip`（监控客户端）与 `build/nodemon-agent-Windows-x64.zip`（Windows 电脑采集端）。客户端包含所需 .NET / WPF 运行库和 `nodemon-tailscale-bridge.exe`，解压到可写文件夹后运行 `NodeMonitor.exe`。用于查看已有 Ubuntu 服务器时使用客户端包即可。两个包均不包含主机配置、令牌或测试数据。
+
+这是仓库原有 Windows 界面的构建，并未同步 Android 的杏绿色重设计、告警中心、持久历史与六种挂件样式。已在当前 Windows 环境完成启动、回环演示 HTTP 读取、动态指标与桌面挂件冒烟；既有地址校验与 GPU 过期测试通过，Windows 采集端 `--once --no-gpu` 也已实际读取 CPU / 内存 / 磁盘 / 网络。Tailscale 登录及更多硬件组合仍需实机验证。
+
+Windows 原生构建可使用 `scripts/build-windows.ps1`，默认寻找项目内 `.tools/dotnet/dotnet.exe` 与 `.tools/go/bin/go.exe`，也可通过 `-Dotnet`、`-Go` 指定路径。构建缓存均重定向到项目内。
+
 这是开发版。采集端运行在被监控的 Windows 电脑；客户端运行在查看数据的 Windows 电脑，也可以连接已有 Ubuntu 采集端。两端均支持 x64 Windows 10/11；尚需在实际 Windows 设备验证。项目使用同一份 v1 快照协议。
 
 ## 运行 Windows 采集端

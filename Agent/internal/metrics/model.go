@@ -2,7 +2,7 @@ package metrics
 
 import "time"
 
-const Version = "0.1.0"
+const Version = "0.3.0-dev"
 
 type Snapshot struct {
 	SchemaVersion int               `json:"schemaVersion"`
@@ -20,6 +20,8 @@ type Snapshot struct {
 	Sensors       []Sensor          `json:"sensors"`
 	Capabilities  map[string]string `json:"capabilities"`
 	Warnings      []string          `json:"warnings"`
+	Processes     []Process         `json:"processes"`
+	Services      []Service         `json:"services"`
 }
 type Host struct {
 	ID     string  `json:"id"`
@@ -50,6 +52,7 @@ type Memory struct {
 	SwapTotal uint64   `json:"swapTotalBytes"`
 	SwapUsed  uint64   `json:"swapUsedBytes"`
 	Usage     *float64 `json:"usagePercent"`
+	Cached    *uint64  `json:"cachedBytes,omitempty"`
 }
 type GPU struct {
 	ID          string    `json:"id"`
@@ -73,11 +76,12 @@ type Disk struct {
 	Available  uint64 `json:"availableBytes"`
 }
 type Network struct {
-	Receive    *float64           `json:"receiveBytesPerSecond"`
-	Send       *float64           `json:"sendBytesPerSecond"`
-	Read       *float64           `json:"diskReadBytesPerSecond"`
-	Write      *float64           `json:"diskWriteBytesPerSecond"`
-	Interfaces []NetworkInterface `json:"interfaces"`
+	Receive     *float64           `json:"receiveBytesPerSecond"`
+	Send        *float64           `json:"sendBytesPerSecond"`
+	Read        *float64           `json:"diskReadBytesPerSecond"`
+	Write       *float64           `json:"diskWriteBytesPerSecond"`
+	Interfaces  []NetworkInterface `json:"interfaces"`
+	DropPercent *float64           `json:"dropPercent,omitempty"`
 }
 type NetworkInterface struct {
 	Name     string   `json:"name"`
@@ -86,6 +90,16 @@ type NetworkInterface struct {
 	Receive  *float64 `json:"receiveBytesPerSecond"`
 	Send     *float64 `json:"sendBytesPerSecond"`
 	Virtual  bool     `json:"virtual"`
+}
+type Process struct {
+	PID    int      `json:"pid"`
+	Name   string   `json:"name"`
+	CPU    *float64 `json:"cpuPercent"`
+	Memory uint64   `json:"memoryBytes"`
+}
+type Service struct {
+	Name  string `json:"name"`
+	State string `json:"state"`
 }
 type Sensor struct {
 	ID      string  `json:"id"`

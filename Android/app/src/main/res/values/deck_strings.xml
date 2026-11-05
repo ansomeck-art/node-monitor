@@ -1,0 +1,8 @@
+<resources>
+ <string name="deck_compact_description">2×2 设备速览：CPU 峰值、逐硬件占用和内存磁盘</string>
+ <string name="deck_summary_description">2×2 全局汇总：在线设备、告警、采集成功率与离线数量</string>
+ <string name="deck_wide_description">4×2 状态全景：逐 CPU、GPU、温度和最近一小时趋势</string>
+ <string name="deck_dashboard_description">4×4 控制面板：硬件状态、趋势、显存、告警与刷新静音按钮</string>
+ <string name="deck_rectangle_description">矩形配件：CPU 峰值与 GPU 状态，锁屏使用取决于系统支持</string>
+ <string name="deck_circle_description">圆形配件：真实 CPU 峰值圆弧与环绕光点，锁屏使用取决于系统支持</string>
+</resources>

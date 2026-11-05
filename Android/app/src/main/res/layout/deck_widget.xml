@@ -1,0 +1,16 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/deck_root" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/deck_widget_background">
+ <ImageView android:id="@+id/deck_content" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" android:contentDescription="节点监控"/>
+ <ViewFlipper android:id="@+id/deck_glint" android:layout_width="28dp" android:layout_height="match_parent" android:layout_gravity="start" android:autoStart="true" android:flipInterval="8500" android:animateFirstView="true" android:inAnimation="@anim/deck_glass_sweep">
+  <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:src="@drawable/deck_glint"/>
+  <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:src="@drawable/deck_glint"/>
+ </ViewFlipper>
+ <ViewFlipper android:id="@+id/deck_pulse" android:layout_width="14dp" android:layout_height="14dp" android:layout_marginStart="9dp" android:layout_marginTop="10dp" android:autoStart="true" android:flipInterval="1800" android:animateFirstView="true" android:inAnimation="@anim/deck_breathe">
+  <ImageView android:id="@+id/deck_dot_a" android:layout_width="match_parent" android:layout_height="match_parent" android:src="@drawable/deck_live_dot"/>
+  <ImageView android:id="@+id/deck_dot_b" android:layout_width="match_parent" android:layout_height="match_parent" android:src="@drawable/deck_live_dot"/>
+ </ViewFlipper>
+ <FrameLayout android:id="@+id/deck_refresh" android:layout_width="36dp" android:layout_height="36dp" android:layout_gravity="top|end" android:contentDescription="刷新监控数据"/>
+ <LinearLayout android:id="@+id/deck_actions" android:layout_width="match_parent" android:layout_height="34dp" android:layout_gravity="bottom" android:layout_margin="12dp" android:orientation="horizontal" android:visibility="gone">
+  <TextView android:id="@+id/deck_mute" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:background="@drawable/deck_button_neutral" android:text="静音 30 分钟" android:textColor="@color/deck_muted" android:textSize="11sp"/>
+  <TextView android:id="@+id/deck_update" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:layout_marginStart="8dp" android:gravity="center" android:background="@drawable/deck_button" android:text="↻ 刷新" android:textColor="@color/deck_accent" android:textSize="11sp"/>
+ </LinearLayout>
+</FrameLayout>

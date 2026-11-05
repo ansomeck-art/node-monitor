@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="cn.nodemon.uitest">
+ <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35"/>
+ <instrumentation android:name="cn.nodemon.app.UiSmokeInstrumentation" android:targetPackage="cn.nodemon.serverdeck.test" android:label="Node Monitor UI QA"/>
+ <application android:label="Node Monitor UI QA" android:hasCode="true"/>
+</manifest>

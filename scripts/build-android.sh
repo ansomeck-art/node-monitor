@@ -42,7 +42,7 @@ fi
 rm -rf "$WORK/generated" "$WORK/classes" "$WORK/dex" "$WORK/apk-root" "$WORK/res.zip" "$WORK/resources.ap_" "$WORK/unsigned.apk" "$WORK/aligned.apk"
 mkdir -p "$WORK/generated" "$WORK/classes" "$WORK/dex" "$WORK/apk-root/lib/arm64-v8a"
 "$BT/aapt2" compile --dir "$PROJECT_ROOT/Android/app/src/main/res" -o "$WORK/res.zip"
-"$BT/aapt2" link -I "$JAR" --manifest "$PROJECT_ROOT/Android/app/src/main/AndroidManifest.xml" --java "$WORK/generated" --custom-package cn.nodemon.app --rename-manifest-package "$ANDROID_APP_ID" --min-sdk-version 26 --target-sdk-version 35 --version-code 2 --version-name 0.2.0-dev.1 -o "$WORK/resources.ap_" "$WORK/res.zip"
+"$BT/aapt2" link -I "$JAR" --manifest "$PROJECT_ROOT/Android/app/src/main/AndroidManifest.xml" --java "$WORK/generated" --custom-package cn.nodemon.app --rename-manifest-package "$ANDROID_APP_ID" --min-sdk-version 26 --target-sdk-version 35 --version-code 5 --version-name 0.3.2-widget-live-dev -o "$WORK/resources.ap_" "$WORK/res.zip"
 find "$PROJECT_ROOT/Android/app/src/main/java" "$WORK/generated" -name '*.java' ! -name '._*' > "$WORK/sources.txt"
 "$JAVA_HOME/bin/javac" -encoding UTF-8 -source 17 -target 17 -classpath "$JAR" -d "$WORK/classes" @"$WORK/sources.txt"
 rm -f "$WORK/classes.jar"

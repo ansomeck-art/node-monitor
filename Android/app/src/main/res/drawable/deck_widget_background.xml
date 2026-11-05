@@ -1,0 +1,1 @@
+<shape xmlns:android="http://schemas.android.com/apk/res/android"><solid android:color="@color/deck_surface"/><corners android:radius="24dp"/><stroke android:width="0.7dp" android:color="@color/deck_border"/><padding android:left="0dp" android:top="0dp" android:right="0dp" android:bottom="0dp"/></shape>

@@ -82,7 +82,16 @@ func parseMemory(text string) (Memory, error) {
 	if free > swap {
 		free = swap
 	}
-	return Memory{Total: total, Used: total - available, Available: available, SwapTotal: swap, SwapUsed: swap - free, Usage: Number(100 * float64(total-available) / float64(total))}, nil
+	cached := values["Buffers"] + values["Cached"] + values["SReclaimable"]
+	if cached >= values["Shmem"] {
+		cached -= values["Shmem"]
+	} else {
+		cached = 0
+	}
+	if cached > total {
+		cached = total
+	}
+	return Memory{Total: total, Used: total - available, Available: available, SwapTotal: swap, SwapUsed: swap - free, Cached: Bytes(cached), Usage: Number(100 * float64(total-available) / float64(total))}, nil
 }
 func rate(previous, current uint64, seconds float64) *float64 {
 	if seconds <= 0 || current < previous {

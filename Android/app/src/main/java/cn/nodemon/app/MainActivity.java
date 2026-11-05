@@ -1,179 +1,240 @@
 package cn.nodemon.app;
 
-import android.app.Activity;
-import android.app.AlertDialog;
+import android.animation.ValueAnimator;
+import android.app.*;
 import android.appwidget.AppWidgetManager;
-import android.content.ComponentName;
-import android.content.ActivityNotFoundException;
-import android.content.Context;
-import android.content.Intent;
-import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.Paint;
-import android.graphics.Path;
-import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
-import android.net.Uri;
-import android.net.ConnectivityManager;
-import android.net.LinkProperties;
-import android.net.Network;
-import android.os.Bundle;
-import android.os.Build;
-import android.graphics.Insets;
-import android.os.Handler;
-import android.os.Looper;
-import android.text.InputType;
-import android.text.TextUtils;
-import android.view.Gravity;
-import android.view.View;
-import android.view.Window;
-import android.view.WindowInsets;
-import android.widget.Button;
-import android.widget.CheckBox;
-import android.widget.EditText;
-import android.widget.LinearLayout;
-import android.widget.ScrollView;
-import android.widget.Spinner;
-import android.widget.ArrayAdapter;
-import android.widget.TextView;
-import android.widget.Toast;
-import org.json.JSONArray;
-import org.json.JSONObject;
-import java.util.ArrayDeque;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import android.content.*;
+import android.content.pm.PackageManager;
+import android.content.res.Configuration;
+import android.graphics.*;
+import android.graphics.drawable.*;
+import android.net.*;
+import android.os.*;
+import android.text.*;
+import android.view.*;
+import android.widget.*;
+import org.json.*;
+import java.util.*;
+import java.util.concurrent.*;
+import java.text.SimpleDateFormat;
 
 public final class MainActivity extends Activity {
-    private HostStore store; private JSONArray hosts; private final Map<String,JSONObject> snapshots = new HashMap<>(); private final Map<String,String> errors = new HashMap<>(); private final Map<String,ArrayDeque<Float>> history = new HashMap<>(); private final Set<String> inFlight = new HashSet<>();
-    private final Handler handler = new Handler(Looper.getMainLooper()); private final ExecutorService executor = Executors.newFixedThreadPool(3);
-    private String page="devices", selected=""; private boolean foreground, destroyed, dark;
-    private JSONArray discovered = new JSONArray(); private String discoveryStatus="登录 Tailscale 后，自动查找已安装采集端的服务器。"; private boolean discovering, resumeDiscovery, loggingIn;
-    private ConnectivityManager connectivity; private boolean networkCallbackRegistered;
-    private final Runnable notifyNetworkChange = () -> { if(!destroyed) executor.execute(()->{ try { TailnetBridge.request(this,"network_changed",null,null); } catch(Exception | LinkageError ignored) {} }); };
-    private final ConnectivityManager.NetworkCallback networkCallback = new ConnectivityManager.NetworkCallback() {
-        private void changed() { handler.removeCallbacks(notifyNetworkChange); handler.postDelayed(notifyNetworkChange,400); }
-        @Override public void onAvailable(Network network) { changed(); }
-        @Override public void onLost(Network network) { changed(); }
-        @Override public void onLinkPropertiesChanged(Network network, LinkProperties properties) { changed(); }
+    static volatile boolean visible;
+    private HostStore store; private MonitorSettings settings; private MonitorDatabase database; private JSONArray hosts;
+    private final Map<String,JSONObject> snapshots=new HashMap<>();private final Map<String,String> errors=new HashMap<>();
+    private final Set<String> inFlight=new HashSet<>();private final Map<String,Double> animatedValues=new HashMap<>();private final Map<String,Long> chartSamples=new HashMap<>();
+    private final Map<String,Integer> scrollPositions=new HashMap<>();
+    private final Handler handler=new Handler(Looper.getMainLooper());private final ExecutorService executor=Executors.newFixedThreadPool(3);
+    private String page="devices",selected="",renderedPage="",alertSearch="";private int detailTab,deviceFilter,alertFilter;private long range=3600000;
+    private boolean foreground,destroyed,dark;private int bg,card,text,muted,track,accent,accentPale,blue,green;
+    private static final int AMBER=0xffc58a19,RED=0xffd4584f;
+    private LinearLayout root,body,header;private ScrollView scroller;
+    private JSONArray discovered=new JSONArray();private String discoveryStatus="登录 Tailscale 后，自动查找已安装采集端的服务器。";private boolean discovering,resumeDiscovery,loggingIn;
+    private ConnectivityManager connectivity;private boolean networkCallbackRegistered;
+    private final Runnable notifyNetworkChange=()->{if(!destroyed)executor.execute(()->{try{TailnetBridge.request(this,"network_changed",null,null);}catch(Exception | LinkageError ignored){}});};
+    private final ConnectivityManager.NetworkCallback networkCallback=new ConnectivityManager.NetworkCallback(){
+        private void changed(){handler.removeCallbacks(notifyNetworkChange);handler.postDelayed(notifyNetworkChange,400);}
+        @Override public void onAvailable(Network n){changed();}@Override public void onLost(Network n){changed();}@Override public void onLinkPropertiesChanged(Network n,LinkProperties p){changed();}
     };
-    private int bg, card, text, muted, track; private final int cyan=0xff75a54f, blue=0xff668e50, purple=0xff8caf72, green=0xff76ad44;
-    private final Map<String,Double> ringValues = new HashMap<>();
-    private LinearLayout root, body, header; private ScrollView scroller; private String renderedPage="";
-    private final Runnable tick = new Runnable() { @Override public void run() { if (!foreground) return; refresh(); handler.postDelayed(this, 5000); } };
-    private int dp(float n) { return Math.round(getResources().getDisplayMetrics().density*n); }
-    @Override public void onCreate(Bundle state) { super.onCreate(state); requestWindowFeature(Window.FEATURE_NO_TITLE); store=new HostStore(this); hosts=store.hosts(); dark=store.dark(); connectivity=(ConnectivityManager)getSystemService(Context.CONNECTIVITY_SERVICE); if(connectivity!=null) try { connectivity.registerDefaultNetworkCallback(networkCallback); networkCallbackRegistered=true; } catch(RuntimeException ignored) {} openWidgetHost(getIntent()); render(); }
-    @Override public void onResume() { super.onResume(); foreground=true; handler.removeCallbacks(tick); handler.post(tick); if(resumeDiscovery && page.equals("discover")) {resumeDiscovery=false;scanRemote();} }
-    @Override public void onPause() { foreground=false; handler.removeCallbacks(tick); super.onPause(); }
-    @Override public void onDestroy() { destroyed=true; handler.removeCallbacks(notifyNetworkChange); if(networkCallbackRegistered) try { connectivity.unregisterNetworkCallback(networkCallback); } catch(RuntimeException ignored) {} executor.shutdownNow(); super.onDestroy(); }
-    private void colors() {
-        bg=Color.parseColor(dark?"#141a15":"#ffffff"); card=Color.parseColor(dark?"#1c241d":"#ffffff");
-        text=Color.parseColor(dark?"#edf3ea":"#202820"); muted=Color.parseColor(dark?"#9aa99a":"#8b9688"); track=Color.parseColor(dark?"#39483b":"#e9eee7");
-        getWindow().setStatusBarColor(bg); getWindow().setNavigationBarColor(bg);
-        getWindow().getDecorView().setSystemUiVisibility(dark?0:View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+    private final Runnable tick=new Runnable(){@Override public void run(){if(!foreground)return;refresh();handler.postDelayed(this,settings.interval()*1000L);}};
+    private long lastScroll;
+    private final Runnable repaint=new Runnable(){public void run(){if(!foreground||destroyed)return;if(SystemClock.elapsedRealtime()-lastScroll<500){handler.postDelayed(this,500);return;}render();}};
+    private int dp(float n){return Math.round(getResources().getDisplayMetrics().density*n);}
+    @Override public void onCreate(Bundle state){
+        settings=new MonitorSettings(this);setTheme(settings.dark(this)?android.R.style.Theme_Material_NoActionBar:android.R.style.Theme_Material_Light_NoActionBar);
+        super.onCreate(state);requestWindowFeature(Window.FEATURE_NO_TITLE);store=new HostStore(this);database=MonitorDatabase.get(this);hosts=store.hosts();
+        for(int i=0;i<hosts.length();i++){JSONObject h=hosts.optJSONObject(i);if(h==null)continue;String id=h.optString("id");JSONObject s=database.cached(id);if(s!=null)snapshots.put(id,s);String e=database.error(id);if(!e.isEmpty())errors.put(id,e);}
+        if(state!=null){page=state.getString("page","devices");selected=state.getString("selected","");detailTab=state.getInt("detailTab");range=state.getLong("range",3600000);}
+        connectivity=getSystemService(ConnectivityManager.class);if(connectivity!=null)try{connectivity.registerDefaultNetworkCallback(networkCallback);networkCallbackRegistered=true;}catch(RuntimeException ignored){}
+        openWidgetHost(getIntent());if(getIntent().getBooleanExtra("open_devices",false))page="devices";if(getIntent().getBooleanExtra("open_alerts",false))page="alerts";MonitorJob.schedule(this);render();
     }
-    private GradientDrawable shape(int color, float radius) { GradientDrawable d=new GradientDrawable(); d.setColor(color); d.setCornerRadius(dp(radius)); return d; }
-    private LinearLayout column() { LinearLayout l=new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); return l; }
-    private LinearLayout row() { LinearLayout l=new LinearLayout(this); l.setOrientation(LinearLayout.HORIZONTAL); l.setGravity(Gravity.CENTER_VERTICAL); return l; }
-    private TextView label(String s, float sp, int color, boolean bold) { TextView t=new TextView(this); t.setText(s); t.setTextSize(sp); t.setTextColor(color); if (bold) t.setTypeface(Typeface.DEFAULT,Typeface.BOLD); return t; }
-    private TextView action(String s, Runnable tap) { TextView t=label(s,14,blue,true); t.setGravity(Gravity.CENTER); t.setPadding(dp(12),dp(8),dp(12),dp(8)); t.setBackground(shape(dark?0xff29362a:0xfff3f6ef,18)); t.setOnClickListener(v->tap.run()); return t; }
-    private void space(LinearLayout l, int h) { View v=new View(this); l.addView(v,new LinearLayout.LayoutParams(1,dp(h))); }
-    private void weight(LinearLayout r, View v) { r.addView(v,new LinearLayout.LayoutParams(0,-2,1)); }
-    private JSONObject host(String id) { for (int i=0;i<hosts.length();i++) { JSONObject h=hosts.optJSONObject(i); if(h!=null && id.equals(h.optString("id"))) return h; } return null; }
-    private void render() {
-        if (destroyed) return; String viewKey=page+":"+selected; int previousScroll=scroller!=null && renderedPage.equals(viewKey)?scroller.getScrollY():0; renderedPage=viewKey; colors(); root=column(); root.setBackgroundColor(bg); setContentView(root);
-        if(Build.VERSION.SDK_INT >= 35) {
-            root.setOnApplyWindowInsetsListener((view, insets) -> {
-                Insets safe=insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-                view.setPadding(safe.left,safe.top,safe.right,safe.bottom); return insets;
+    @Override protected void onSaveInstanceState(Bundle s){s.putString("page",page);s.putString("selected",selected);s.putInt("detailTab",detailTab);s.putLong("range",range);super.onSaveInstanceState(s);}
+    @Override public void onConfigurationChanged(Configuration c){super.onConfigurationChanged(c);recreate();}
+    @Override public void onResume(){super.onResume();foreground=true;visible=true;WidgetBackgroundController.ensure(this);handler.removeCallbacks(tick);handler.post(tick);if(resumeDiscovery&&page.equals("discover")){resumeDiscovery=false;scanRemote();}}
+    @Override public void onPause(){foreground=false;visible=false;handler.removeCallbacks(tick);handler.removeCallbacks(repaint);super.onPause();}
+    @Override public void onDestroy(){destroyed=true;handler.removeCallbacksAndMessages(null);if(networkCallbackRegistered)try{connectivity.unregisterNetworkCallback(networkCallback);}catch(RuntimeException ignored){}executor.shutdownNow();super.onDestroy();}
+    private void colors(){dark=settings.dark(this);bg=Color.parseColor(dark?"#101311":"#FAFAF8");card=Color.parseColor(dark?"#191D1A":"#FFFFFF");text=Color.parseColor(dark?"#E4E9E5":"#212925");muted=Color.parseColor(dark?"#87928A":"#858F96");track=Color.parseColor(dark?"#2B302C":"#E8EAE6");accent=Color.parseColor(dark?"#80C9AA":"#3B8D74");accentPale=Color.parseColor(dark?"#22392F":"#E8F0EB");blue=green=accent;getWindow().setStatusBarColor(bg);getWindow().setNavigationBarColor(bg);getWindow().getDecorView().setSystemUiVisibility(dark?0:View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);}
+    private GradientDrawable shape(int color,float radius){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));return d;}
+    private LinearLayout column(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);return l;}
+    private LinearLayout row(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.HORIZONTAL);l.setGravity(Gravity.CENTER_VERTICAL);return l;}
+    private TextView label(String s,float sp,int color,boolean bold){TextView t=new TextView(this);t.setText(s);t.setTextSize(sp);t.setTextColor(color);t.setIncludeFontPadding(false);t.setLineSpacing(dp(3),1);if(bold)t.setTypeface(Typeface.create("sans-serif-medium",0));return t;}
+    private TextView mono(String s,float sp,int color){TextView t=label(s,sp,color,false);t.setTypeface(Typeface.create("monospace",0));return t;}
+    private void space(LinearLayout l,int h){l.addView(new View(this),new LinearLayout.LayoutParams(1,dp(h)));}
+    private void spaceHorizontal(LinearLayout l,int w){l.addView(new View(this),new LinearLayout.LayoutParams(dp(w),1));}
+    private void weight(LinearLayout l,View v){l.addView(v,new LinearLayout.LayoutParams(0,-2,1));}
+    private void clickable(View v,Runnable tap){v.setClickable(true);v.setFocusable(true);v.setForeground(new RippleDrawable(android.content.res.ColorStateList.valueOf(dark?0x2280c9aa:0x183b8d74),null,shape(Color.WHITE,14)));v.setOnTouchListener((view,event)->{if(MonitorViews.motion()){boolean down=event.getActionMasked()==MotionEvent.ACTION_DOWN;if(down||event.getActionMasked()==MotionEvent.ACTION_UP||event.getActionMasked()==MotionEvent.ACTION_CANCEL)view.animate().scaleX(down?.985f:1f).scaleY(down?.985f:1f).setDuration(down?80:180).start();}return false;});v.setOnClickListener(w->{v.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);tap.run();});}
+    private TextView action(String s,Runnable tap){TextView t=label(s,13,accent,true);t.setGravity(Gravity.CENTER);t.setMinHeight(dp(44));t.setPadding(dp(14),dp(10),dp(14),dp(10));t.setBackground(shape(accentPale,24));clickable(t,tap);return t;}
+    private View iconButton(String kind,String description,Runnable tap){FrameLayout f=new FrameLayout(this);GradientDrawable b=shape(card,24);b.setStroke(dp(1),track);f.setBackground(b);f.addView(new MonitorViews.Icon(this,kind,muted),new FrameLayout.LayoutParams(dp(20),dp(20),Gravity.CENTER));f.setContentDescription(description);f.setLayoutParams(new LinearLayout.LayoutParams(dp(44),dp(44)));clickable(f,tap);return f;}
+    private JSONObject host(String id){for(int i=0;i<hosts.length();i++){JSONObject h=hosts.optJSONObject(i);if(h!=null&&id.equals(h.optString("id")))return h;}return null;}
+    private void title(String title,String sub){LinearLayout c=column();TextView t=label(title,22,text,true);t.setSingleLine();t.setEllipsize(TextUtils.TruncateAt.END);c.addView(t);if(sub!=null){space(c,7);c.addView(label(sub,11,muted,false));}weight(header,c);}
+    private String viewKey(){return page+":"+(page.equals("details")?selected+":"+detailTab:"");}
+    private void navigate(String next){page=next;render();}
+    private void render(){
+        if(destroyed)return;String key=viewKey();boolean changed=!renderedPage.equals(key);if(scroller!=null&&!renderedPage.isEmpty())scrollPositions.put(renderedPage,scroller.getScrollY());renderedPage=key;colors();
+        root=column();root.setBackgroundColor(bg);setContentView(root);
+        if(Build.VERSION.SDK_INT>=35){root.setOnApplyWindowInsetsListener((view,insets)->{Insets safe=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());view.setPadding(safe.left,safe.top,safe.right,safe.bottom);return insets;});root.requestApplyInsets();}
+        header=row();header.setPadding(dp(20),dp(16),dp(20),dp(14));root.addView(header);
+        scroller=new ScrollView(this);scroller.setOnScrollChangeListener((v,x,y,oldX,oldY)->lastScroll=SystemClock.elapsedRealtime());scroller.setFillViewport(true);scroller.setClipToPadding(false);scroller.setVerticalScrollBarEnabled(false);body=column();body.setPadding(dp(20),dp(2),dp(20),dp(16));scroller.addView(body);root.addView(scroller,new LinearLayout.LayoutParams(-1,0,1));
+        switch(page){case "devices":devices();break;case "details":details();break;case "alerts":alerts();break;case "discover":discoveryPage();break;default:settings();}
+        if(!page.equals("discover"))navigation();int y=scrollPositions.getOrDefault(key,0);ScrollView current=scroller;if(y>0)current.post(()->current.scrollTo(0,y));
+        if(changed&&MonitorViews.motion()){body.setAlpha(0);body.setTranslationY(dp(8));body.animate().alpha(1).translationY(0).setDuration(220).start();}
+    }
+    private void navigation(){View v=new View(this);v.setBackgroundColor(track);root.addView(v,new LinearLayout.LayoutParams(-1,dp(.6f)));LinearLayout nav=row();nav.setBackgroundColor(bg);nav.setPadding(dp(22),dp(6),dp(22),dp(5));String active=page.equals("details")?"devices":page;String[] names={"设备","告警","设置"},icons={"server","bell","gear"},pages={"devices","alerts","settings"};for(int i=0;i<3;i++){final String next=pages[i];boolean on=active.equals(next);LinearLayout item=column();item.setGravity(Gravity.CENTER);item.setPadding(0,dp(5),0,dp(5));item.addView(new MonitorViews.Icon(this,icons[i],on?accent:muted),new LinearLayout.LayoutParams(dp(22),dp(22)));space(item,5);int n=i==1?database.active(""):0;TextView navLabel=label(names[i]+(n>0?" · "+n:""),10,on?accent:muted,on);navLabel.setGravity(Gravity.CENTER);item.addView(navLabel);item.setContentDescription(names[i]+(on?"，已选中":"")+(n>0?"，"+n+" 条待处理":""));clickable(item,()->navigate(next));weight(nav,item);}root.addView(nav);}
+    private LinearLayout surface(LinearLayout parent){LinearLayout c=column();c.setPadding(dp(15),dp(15),dp(15),dp(15));GradientDrawable d=shape(card,18);d.setStroke(dp(.8f),dark?0xff30362f:0xffe5e7e3);c.setBackground(d);if(!dark)c.setElevation(dp(1.8f));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.bottomMargin=dp(14);parent.addView(c,p);return c;}
+    private LinearLayout card(){return surface(body);}
+    private void heading(String name,String detail){LinearLayout line=row();line.setPadding(dp(2),dp(2),dp(2),dp(10));weight(line,label(name,14,text,true));if(detail!=null)line.addView(mono(detail,10,muted));body.addView(line);}
+    private void divider(LinearLayout c){View v=new View(this);v.setBackgroundColor(track);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(.6f));p.setMargins(0,dp(10),0,dp(10));c.addView(v,p);}
+    private void kv(LinearLayout c,String key,String value,int color,boolean separator){LinearLayout line=row();weight(line,label(key,12,muted,false));TextView v=mono(value,11,color);v.setGravity(Gravity.END);line.addView(v);c.addView(line);if(separator)divider(c);}
+    private String pct(Double n){return n==null?"—":String.format(Locale.ROOT,"%.0f%%",n);}
+    private String bytes(Double n){return n==null?"—":String.format(Locale.ROOT,"%.1f GiB",n/1073741824d);}
+    private String time(long t){return new SimpleDateFormat("HH:mm",Locale.getDefault()).format(new Date(t));}
+    private String duration(double s){if(s<60)return (long)Math.max(0,s)+" 秒";if(s<3600)return (long)(s/60)+" 分钟";if(s<86400)return String.format(Locale.ROOT,"%d 小时 %d 分钟",(long)(s/3600),(long)(s%3600/60));return String.format(Locale.ROOT,"%d 天 %d 小时",(long)(s/86400),(long)(s%86400/3600));}
+    private String ago(long t){return t<=0?"—":duration((System.currentTimeMillis()-t)/1000d)+"前";}
+    private boolean online(String id){JSONObject s=snapshots.get(id);return s!=null&&!errors.containsKey(id)&&System.currentTimeMillis()-MonitorDatabase.sampleTime(s)<Math.max(30000,s.optDouble("sampleIntervalSeconds",5)*3000);}
+    private String status(String id){return online(id)?"在线":database.failures(id)>=settings.failures()?"离线":snapshots.containsKey(id)?"重连中":"等待连接";}
+    private int statusColor(String id){return online(id)?accent:database.failures(id)>=settings.failures()?RED:muted;}
+    private void statusLine(String id,JSONObject h,JSONObject s){LinearLayout line=row();line.addView(new MonitorViews.Dot(this,statusColor(id),online(id)),new LinearLayout.LayoutParams(dp(14),dp(14)));weight(line,label(status(id)+" · "+(h.optString("mode").equals("tailnet")?"Tailscale":"直连")+(online(id)?" · 请求 "+database.latency(id)+" ms":""),11,muted,false));line.addView(mono(s==null?"—":Metrics.sampleTime(s),10,muted));body.addView(line);space(body,16);}
+    private void progress(LinearLayout c,String key,Double value){Double before=animatedValues.put(key,value);c.addView(new MonitorViews.Progress(this,value,before,accent,track),new LinearLayout.LayoutParams(-1,dp(5)));}
+    private TextView animatedNumber(String key,Double value,String suffix,float size,int color){Double before=animatedValues.put(key,value);TextView t=mono(value==null?"—":String.format(Locale.ROOT,"%.0f",value)+suffix,size,color);if(value!=null&&before!=null&&Math.abs(before-value)>=.5&&MonitorViews.motion()){ValueAnimator a=ValueAnimator.ofFloat(before.floatValue(),value.floatValue());a.setDuration(650);a.addUpdateListener(v->t.setText(String.format(Locale.ROOT,"%.0f",(float)v.getAnimatedValue())+suffix));t.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener(){public void onViewAttachedToWindow(View v){}public void onViewDetachedFromWindow(View v){a.cancel();}});a.start();}return t;}
+    private void chips(LinearLayout parent,String[] names,int active,java.util.function.IntConsumer tap){LinearLayout line=row();for(int i=0;i<names.length;i++){final int which=i;TextView t=label(names[i],11,active==i?(dark?0xff143a29:Color.WHITE):muted,active==i);t.setGravity(Gravity.CENTER);t.setMinHeight(dp(36));t.setPadding(dp(13),dp(7),dp(13),dp(7));t.setBackground(shape(active==i?accent:(dark?0xff222823:0xfff0f2ee),20));if(active==i&&!dark)t.setElevation(dp(2));clickable(t,()->tap.accept(which));line.addView(t);if(i<names.length-1)spaceHorizontal(line,7);}parent.addView(line);space(parent,12);}
+    private JSONObject obj(JSONObject s,String key){return s==null?null:s.optJSONObject(key);}
+    private Double gpuAverage(JSONObject s){JSONArray a=s==null?null:s.optJSONArray("gpus");double sum=0;int count=0;if(a!=null)for(int i=0;i<a.length();i++){Double n=Metrics.number(Metrics.freshGpu(s,a.optJSONObject(i)),"usagePercent");if(n!=null){sum+=n;count++;}}return count==0?null:sum/count;}
+    private Double diskUsage(JSONObject s){JSONArray a=s==null?null:s.optJSONArray("disks");double total=0,used=0;if(a!=null)for(int i=0;i<a.length();i++){Double t=Metrics.number(a.optJSONObject(i),"totalBytes"),u=Metrics.number(a.optJSONObject(i),"usedBytes");if(t!=null&&u!=null){total+=t;used+=u;}}return total>0?100*used/total:null;}
+    private LinearLayout metricTile(String id,String icon,String name,Double value,String extra){LinearLayout tile=column();tile.setPadding(dp(8),dp(8),dp(8),dp(8));LinearLayout title=row();title.addView(new MonitorViews.Icon(this,icon,value==null?muted:accent),new LinearLayout.LayoutParams(dp(16),dp(16)));spaceHorizontal(title,5);title.addView(label(name,11,muted,false));tile.addView(title);space(tile,9);tile.addView(animatedNumber(id,value,"%",23,value==null?muted:text));if(extra!=null){space(tile,5);TextView e=mono(extra,10,muted);e.setSingleLine();e.setEllipsize(TextUtils.TruncateAt.END);tile.addView(e);}space(tile,10);progress(tile,id+"/bar",value);return tile;}
+    private void overview(LinearLayout c,String id,JSONObject s,boolean compact){LinearLayout first=row(),second=row();weight(first,metricTile(id+"cpu","cpu","CPU 平均",Metrics.number(obj(s,"cpu"),"usagePercent"),null));View vertical=new View(this);vertical.setBackgroundColor(track);first.addView(vertical,new LinearLayout.LayoutParams(dp(.6f),dp(compact?70:87)));weight(first,metricTile(id+"gpu","gpu","GPU 平均",gpuAverage(s),null));c.addView(first);divider(c);weight(second,metricTile(id+"mem","memory","内存",Metrics.number(obj(s,"memory"),"usagePercent"),compact?null:Metrics.size(obj(s,"memory"),"usedBytes")+" / "+Metrics.size(obj(s,"memory"),"totalBytes")));View v=new View(this);v.setBackgroundColor(track);second.addView(v,new LinearLayout.LayoutParams(dp(.6f),dp(compact?70:87)));weight(second,metricTile(id+"disk","disk","磁盘合计",diskUsage(s),null));c.addView(second);}
+    private void devices(){
+        int connected=0,alerting=0,offline=0;for(int i=0;i<hosts.length();i++){JSONObject h=hosts.optJSONObject(i);if(h==null)continue;String id=h.optString("id");if(online(id))connected++;else if(database.failures(id)>=settings.failures())offline++;if(database.active(id)>0)alerting++;}
+        title("节点监控",null);header.addView(iconButton("grid","桌面挂件样式",this::chooseWidget));spaceHorizontal(header,8);header.addView(iconButton("plus","添加主机",this::addChoice));body.addView(label(connected+" / "+hosts.length()+" 台设备在线 · 前台每 "+settings.interval()+" 秒刷新",11,muted,false));space(body,15);
+        chips(body,new String[]{"全部 "+hosts.length(),"告警 "+alerting,"离线 "+offline},deviceFilter,n->{deviceFilter=n;render();});
+        if(hosts.length()==0){LinearLayout c=card();space(c,16);c.addView(new MonitorViews.Icon(this,"server",accent),new LinearLayout.LayoutParams(dp(36),dp(36)));space(c,18);c.addView(label("连接你的第一台服务器",19,text,true));space(c,9);c.addView(label("添加运行采集端的 Ubuntu 或 Windows 主机，随时查看硬件状态。",13,muted,false));space(c,20);c.addView(action("＋ 添加主机",this::addChoice));space(c,12);c.addView(action("查看桌面挂件样式",this::chooseWidget));space(c,12);return;}
+        int count=0;
+        for(int i=0;i<hosts.length();i++){
+            JSONObject h=hosts.optJSONObject(i);if(h==null)continue;String id=h.optString("id");if(deviceFilter==1&&database.active(id)==0||deviceFilter==2&&database.failures(id)<settings.failures())continue;count++;JSONObject s=snapshots.get(id);
+            LinearLayout c=card(),identity=row();identity.addView(new MonitorViews.Dot(this,statusColor(id),online(id)),new LinearLayout.LayoutParams(dp(15),dp(15)));TextView name=label(h.optString("name"),16,text,true);name.setSingleLine();name.setEllipsize(TextUtils.TruncateAt.END);weight(identity,name);
+            TextView mode=label(h.optString("mode").equals("tailnet")?"远程 · Tailscale":"局域网 / HTTPS",9,muted,false);mode.setPadding(dp(9),dp(5),dp(9),dp(5));mode.setBackground(shape(dark?track:0xfff1f3ef,12));identity.addView(mode);spaceHorizontal(identity,6);identity.addView(new MonitorViews.Icon(this,"chevron",muted),new LinearLayout.LayoutParams(dp(15),dp(15)));c.addView(identity);space(c,9);
+            JSONObject server=obj(s,"host");TextView sub=label((server==null?"等待采集端数据":server.optString("os","服务器"))+" · "+(online(id)?"已运行 "+duration(server==null?0:server.optDouble("uptimeSeconds")):status(id)),10,muted,false);sub.setSingleLine();sub.setEllipsize(TextUtils.TruncateAt.END);c.addView(sub);space(c,8);overview(c,id+"/home/",s,true);divider(c);
+            LinearLayout chartHead=row();weight(chartHead,label("CPU · 最近 1 小时",10,muted,false));List<MonitorDatabase.Point> points=database.history(id,3600000);Double peak=null;for(MonitorDatabase.Point p:points)if(p.cpu!=null&&(peak==null||p.cpu>peak))peak=p.cpu;chartHead.addView(mono("峰值 "+pct(peak),10,muted));c.addView(chartHead);space(c,8);c.addView(chart(id,points,3600000,true,"cpu"),new LinearLayout.LayoutParams(-1,dp(54)));space(c,9);kv(c,"最近采样 "+(s==null?"—":Metrics.sampleTime(s)),load(s),accent,false);
+            if(!online(id)){space(c,8);c.addView(label(errors.getOrDefault(id,s==null?"正在连接…":"等待最新采样，以上为上次读数"),11,RED,false));}
+            clickable(c,()->{selected=id;detailTab=0;navigate("details");});
+        }
+        if(count==0){LinearLayout c=card();c.addView(label(deviceFilter==1?"目前没有待处理告警":"所有设备均在线",14,accent,true));}
+        heading("今日摘要","过去 24 小时");MonitorDatabase.Summary summary=database.summary("");LinearLayout sum=card();kv(sum,"采集成功率",summary.attempts==0?"—":String.format(Locale.ROOT,"%.2f%%",100d*summary.success/summary.attempts),accent,true);kv(sum,"CPU 峰值",summary.peak==null?"—":pct(summary.peak)+" · "+time(summary.peakTime),text,true);kv(sum,"告警 / 恢复",summary.alerts+" / "+summary.recovered,text,false);
+        heading("桌面挂件",MonitorWidget.count(this)+" 个已添加");LinearLayout widget=card(),line=row();line.addView(new MonitorViews.Icon(this,"grid",accent),new LinearLayout.LayoutParams(dp(24),dp(24)));spaceHorizontal(line,12);LinearLayout content=column();content.addView(label("添加桌面挂件",13,text,true));space(content,5);content.addView(label("把节点状态放到主屏，随手就能看",10,muted,false));weight(line,content);line.addView(new MonitorViews.Icon(this,"chevron",muted),new LinearLayout.LayoutParams(dp(16),dp(16)));widget.addView(line);clickable(widget,this::chooseWidget);
+    }
+    private String load(JSONObject s){JSONArray a=obj(s,"cpu")==null?null:obj(s,"cpu").optJSONArray("loadAverage");return a==null||a.length()<3?"负载 —":String.format(Locale.ROOT,"负载 %.2f / %.2f / %.2f",a.optDouble(0),a.optDouble(1),a.optDouble(2));}
+    private View chart(String id,List<MonitorDatabase.Point> points,long range,boolean mini,String field){String key=id+"/"+range+"/"+mini+"/"+field;long latest=points.isEmpty()?0:points.get(points.size()-1).time;Long before=chartSamples.put(key,latest);return new MonitorViews.Chart(this,points,range,mini,field,accent,0xff93a6ac,muted,track,card,settings.threshold("cpu"),before!=null&&latest!=before);}
+    private void chooseWidget(){openWidgetGallery(store.widgetHost(hosts));}
+    private void openWidgetGallery(JSONObject h){Intent intent=new Intent(this,WidgetGalleryActivity.class);if(h!=null)intent.putExtra(MonitorWidget.EXTRA_HOST_ID,h.optString("id"));startActivity(intent);}
+    private void details(){
+        JSONObject h=host(selected);if(h==null){navigate("devices");return;}header.addView(iconButton("back","返回设备列表",()->navigate("devices")));spaceHorizontal(header,12);title(h.optString("name"),null);header.addView(action("编辑",()->hostDialog(h)));JSONObject s=snapshots.get(selected);statusLine(selected,h,s);chips(body,new String[]{"硬件概览","存储与网络","趋势与进程"},detailTab,n->{detailTab=n;render();});
+        if(!online(selected)){LinearLayout c=card();c.addView(label(s==null?"尚未收到监控数据":"连接中断 · 保留上次读数",14,text,true));space(c,8);c.addView(label(errors.getOrDefault(selected,"正在等待最新采样"),12,muted,false));space(c,12);c.addView(action("重新连接",this::refresh));if(s==null)return;}
+        if(detailTab==0)hardware(s);else if(detailTab==1)storage(s);else activity(s);
+        if(!h.optString("directAddress").isEmpty()&&!h.optString("tailnetAddress").isEmpty()){heading("连接方式",null);LinearLayout choice=card(),line=row();weight(line,action(h.optString("mode").equals("direct")?"✓ 局域网":"局域网",()->switchMode(h,false)));spaceHorizontal(line,10);weight(line,action(h.optString("mode").equals("tailnet")?"✓ Tailscale":"Tailscale",()->switchMode(h,true)));choice.addView(line);}
+        JSONArray warnings=s.optJSONArray("warnings");if(warnings!=null&&warnings.length()>0){LinearLayout c=card();for(int i=0;i<warnings.length();i++)c.addView(label(warnings.optString(i),11,muted,false));}
+    }
+    private void hardware(JSONObject s){
+        LinearLayout overview=card(),top=row();weight(top,label("状态概览",14,text,true));top.addView(mono("实时 · "+s.optDouble("sampleIntervalSeconds",5)+"s 采样",10,muted));overview.addView(top);space(overview,9);overview(overview,selected+"/detail/",s,false);
+        JSONObject cpu=obj(s,"cpu");JSONArray packages=cpu==null?null:cpu.optJSONArray("packages");heading("处理器",(packages==null||packages.length()==0?"整机":"物理 CPU × "+packages.length())+" · "+(cpu==null?"—":cpu.optInt("cores"))+" 线程");LinearLayout c=card();if(packages==null||packages.length()==0)cpuRow(c,"CPU 总体",cpu,selected+"cpu",true);else for(int i=0;i<packages.length();i++){JSONObject p=packages.optJSONObject(i);if(p!=null)cpuRow(c,"CPU "+(i+1),p,selected+"cpu"+i,i==packages.length()-1);}divider(c);kv(c,"负载 1 / 5 / 15 分钟",load(s).replace("负载 ",""),muted,false);
+        JSONArray gpus=s.optJSONArray("gpus");heading("显卡",gpus==null?"未提供":gpus.length()+" 张 GPU");
+        if(gpus==null||gpus.length()==0){LinearLayout empty=card();empty.addView(label("暂无可用的显卡读数",12,muted,false));}
+        else {LinearLayout line=null;for(int i=0;i<gpus.length();i++){
+            if(i%2==0){line=row();line.setGravity(Gravity.TOP);body.addView(line);}JSONObject g=gpus.optJSONObject(i),fresh=Metrics.freshGpu(s,g);LinearLayout tile=column();tile.setPadding(dp(13),dp(14),dp(13),dp(14));GradientDrawable d=shape(card,17);d.setStroke(dp(.8f),track);tile.setBackground(d);if(!dark)tile.setElevation(dp(1.5f));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.bottomMargin=dp(14);line.addView(tile,lp);if(i%2==0&&i+1<gpus.length())spaceHorizontal(line,10);
+            LinearLayout name=row();weight(name,label("GPU "+(i+1),13,text,true));TextView temp=mono(Metrics.temp(fresh,"temperatureCelsius"),10,accent);temp.setPadding(dp(5),dp(4),dp(5),dp(4));temp.setBackground(shape(accentPale,5));name.addView(temp);tile.addView(name);space(tile,9);TextView model=label(shortGpu(g),10,muted,false);model.setSingleLine();model.setEllipsize(TextUtils.TruncateAt.END);tile.addView(model);space(tile,16);tile.addView(animatedNumber(selected+"gpu"+i,Metrics.number(fresh,"usagePercent"),"%",24,text));space(tile,5);tile.addView(label("利用率",10,muted,false));space(tile,12);progress(tile,selected+"gpuBar"+i,Metrics.number(fresh,"usagePercent"));space(tile,13);tile.addView(mono(Metrics.size(fresh,"memoryUsedBytes")+" / "+Metrics.size(fresh,"memoryTotalBytes"),9,muted));space(tile,6);tile.addView(label("已用显存 / 总显存",9,muted,false));
+        }if(gpus.length()%2==1){spaceHorizontal(line,10);weight(line,new View(this));}}
+        LinearLayout widget=card();widget.addView(action("＋ 添加此主机的桌面挂件",()->pinWidget(host(selected))));
+    }
+    private void cpuRow(LinearLayout c,String name,JSONObject data,String key,boolean last){LinearLayout line=row();line.addView(label(name,12,muted,false),new LinearLayout.LayoutParams(dp(54),-2));LinearLayout bar=column();progress(bar,key+"bar",Metrics.number(data,"usagePercent"));weight(line,bar);spaceHorizontal(line,12);line.addView(animatedNumber(key,Metrics.number(data,"usagePercent"),"%",13,text));spaceHorizontal(line,12);line.addView(mono(Metrics.temp(data,"temperatureCelsius"),10,muted));c.addView(line);if(!last)space(c,18);}
+    private String shortGpu(JSONObject g){return g==null?"显卡":g.optString("name","显卡").replace("NVIDIA GeForce ","").replace("NVIDIA ","").replace("AMD Radeon ","");}
+    private String rate(JSONObject n,String key){Double v=Metrics.number(n,key);return v==null?"—":v>=1048576?String.format(Locale.ROOT,"%.1f MiB/s",v/1048576):String.format(Locale.ROOT,"%.0f KiB/s",v/1024);}
+    private void storage(JSONObject s){
+        JSONObject m=obj(s,"memory");LinearLayout c=card(),title=row();weight(title,label("系统内存",14,text,true));title.addView(mono(Metrics.percent(m,"usagePercent")+" 已使用",10,muted));c.addView(title);space(c,22);LinearLayout amount=row();amount.addView(mono(Metrics.size(m,"usedBytes").replace(" GiB",""),27,text));spaceHorizontal(amount,8);amount.addView(label("/ "+Metrics.size(m,"totalBytes"),11,muted,false));c.addView(amount);space(c,13);progress(c,selected+"memory",Metrics.number(m,"usagePercent"));space(c,18);kv(c,"缓存 / 缓冲",Metrics.size(m,"cachedBytes"),text,true);kv(c,"可用",Metrics.size(m,"availableBytes"),text,true);kv(c,"Swap",Metrics.size(m,"swapUsedBytes")+" / "+Metrics.size(m,"swapTotalBytes"),text,false);
+        JSONObject net=obj(s,"network");heading("磁盘","读写 "+rate(net,"diskReadBytesPerSecond")+" / "+rate(net,"diskWriteBytesPerSecond"));LinearLayout disks=card();JSONArray a=s.optJSONArray("disks");if(a==null||a.length()==0)disks.addView(label("采集端未提供磁盘数据",12,muted,false));else for(int i=0;i<a.length();i++){JSONObject d=a.optJSONObject(i);if(d==null)continue;kv(disks,d.optString("mount"),Metrics.size(d,"usedBytes")+" / "+Metrics.size(d,"totalBytes"),muted,false);space(disks,10);progress(disks,selected+"disk"+d.optString("id",d.optString("mount")),Metrics.ratio(d,"usedBytes","totalBytes"));if(i<a.length()-1)divider(disks);}
+        JSONArray interfaces=net==null?null:net.optJSONArray("interfaces");List<String> names=new ArrayList<>();double rx=0,tx=0;boolean physical=false;
+        if(interfaces!=null)for(int i=0;i<interfaces.length();i++)if(interfaces.optJSONObject(i)!=null&&!interfaces.optJSONObject(i).optBoolean("virtual"))physical=true;
+        if(interfaces!=null)for(int i=0;i<interfaces.length();i++){JSONObject n=interfaces.optJSONObject(i);if(n==null)continue;String name=n.optString("name");if(physical&&n.optBoolean("virtual")||!physical&&(name.startsWith("veth")||name.startsWith("docker")||name.startsWith("br-")))continue;names.add(name);rx+=n.optDouble("receivedBytes",0);tx+=n.optDouble("sentBytes",0);}
+        heading("网络",names.isEmpty()?"接口未提供":TextUtils.join(" · ",names));LinearLayout line=row();line.setGravity(Gravity.TOP);body.addView(line);List<MonitorDatabase.Point> points=database.history(selected,3600000);networkTile(line,"下行","down",rate(net,"receiveBytesPerSecond"),names.isEmpty()?"—":bytes(rx),"rx",points);spaceHorizontal(line,10);networkTile(line,"上行","up",rate(net,"sendBytesPerSecond"),names.isEmpty()?"—":bytes(tx),"tx",points);
+        LinearLayout foot=card();kv(foot,"接口丢包率",Metrics.percent(net,"dropPercent"),muted,true);kv(foot,"请求耗时",database.latency(selected)+" ms",muted,false);space(foot,10);foot.addView(label("累计流量自网卡计数器重置起；请求耗时包含采集端响应时间。",10,muted,false));
+    }
+    private void networkTile(LinearLayout line,String title,String icon,String value,String total,String field,List<MonitorDatabase.Point> points){LinearLayout c=column();c.setPadding(dp(13),dp(13),dp(13),dp(13));GradientDrawable d=shape(card,15);d.setStroke(dp(.8f),track);c.setBackground(d);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.bottomMargin=dp(14);line.addView(c,lp);LinearLayout name=row();name.addView(new MonitorViews.Icon(this,icon,muted),new LinearLayout.LayoutParams(dp(14),dp(14)));spaceHorizontal(name,6);name.addView(label(title,11,muted,false));c.addView(name);space(c,12);c.addView(mono(value,16,text));space(c,9);c.addView(chart(selected,points,3600000,true,field),new LinearLayout.LayoutParams(-1,dp(36)));space(c,8);c.addView(mono("累计 "+total,9,muted));}
+    private void activity(JSONObject s){
+        heading("使用率趋势",range<3600000?"过去 15 分钟":"过去 "+range/3600000+" 小时");LinearLayout c=card();int which=range==900000?0:range==3600000?1:range==21600000?2:3;chips(c,new String[]{"15m","1h","6h","24h"},which,n->{range=new long[]{900000,3600000,21600000,86400000}[n];render();});List<MonitorDatabase.Point> points=database.history(selected,range);c.addView(chart(selected,points,range,false,"cpu"),new LinearLayout.LayoutParams(-1,dp(180)));space(c,10);LinearLayout legend=row();legend.addView(label("━ CPU 平均",10,accent,true));spaceHorizontal(legend,18);legend.addView(label("━ 内存",10,0xff93a6ac,false));c.addView(legend);space(c,10);c.addView(label("仅记录客户端实际收到的采样；断线与休眠处保留空档。",10,muted,false));
+        JSONArray processes=s.optJSONArray("processes");heading("进程 Top 5","按 CPU 占比");LinearLayout process=card();
+        if(processes==null){process.addView(label("采集端尚未开启进程采集",13,text,true));space(process,8);process.addView(label("新版 Linux 采集端使用 --processes 开启，只读取进程名、PID、CPU 和内存。",11,muted,false));}
+        else if(processes.length()==0)process.addView(label("暂无可读取的进程",12,muted,false));
+        else for(int i=0;i<Math.min(5,processes.length());i++){JSONObject p=processes.optJSONObject(i);if(p==null)continue;LinearLayout line=row();TextView name=label(p.optString("name")+" · "+p.optInt("pid"),11,text,false);name.setSingleLine();name.setEllipsize(TextUtils.TruncateAt.END);weight(line,name);line.addView(mono(Metrics.percent(p,"cpuPercent"),11,muted));spaceHorizontal(line,12);line.addView(mono(Metrics.size(p,"memoryBytes"),10,muted));process.addView(line);if(i<Math.min(5,processes.length())-1)divider(process);}
+        space(process,9);process.addView(label("CPU 按整机总计算能力归一化，100% 表示占满整机。",9,muted,false));
+        JSONArray services=s.optJSONArray("services");heading("服务状态",services==null?"尚未配置":services.length()+" 个受监控");LinearLayout service=card();
+        if(services==null){service.addView(label("在 Linux 采集端使用 --services docker,nginx,tailscaled 指定服务。",12,muted,false));space(service,8);service.addView(label("只读展示 systemd 服务状态；未提供的状态不会被当作已停止。",11,muted,false));}
+        else if(services.length()==0)service.addView(label("尚未配置受监控的服务",12,muted,false));
+        else for(int i=0;i<services.length();i++){JSONObject v=services.optJSONObject(i);if(v==null)continue;String state=v.optString("state");boolean active=state.equals("active");LinearLayout line=row();line.addView(new MonitorViews.Dot(this,active?accent:state.equals("failed")?RED:muted,active&&online(selected)),new LinearLayout.LayoutParams(dp(14),dp(14)));weight(line,label(v.optString("name"),12,muted,false));line.addView(label(active?"运行中":state.equals("inactive")?"已停止":state.equals("failed")?"运行失败":state.equals("not-found")?"未安装":"未提供",11,active?text:muted,false));service.addView(line);if(i<services.length()-1)divider(service);}
+    }
+    private void alerts(){
+        title("告警中心",null);header.addView(iconButton("search","搜索告警",this::searchAlerts));List<MonitorDatabase.Event> all=database.events();int critical=0,warning=0,recovered=0;
+        for(MonitorDatabase.Event e:all){if(e.ended>0){if("recovered".equals(e.resolution))recovered++;}else if(e.level==2)critical++;else warning++;}
+        LinearLayout intro=row();weight(intro,label("全部设备 · 过去 7 天",11,muted,false));intro.addView(mono(all.size()+" 条",10,muted));body.addView(intro);space(body,16);LinearLayout stats=card(),line=row();String[] nums={""+critical,""+warning,""+recovered},labels={"严重","警告","已恢复"};int[] colors={RED,AMBER,accent};
+        for(int i=0;i<3;i++){LinearLayout stat=column();stat.setPadding(dp(2),dp(3),dp(2),dp(3));stat.addView(mono(nums[i],23,colors[i]));space(stat,9);stat.addView(label(labels[i],11,muted,false));final int filter=i+1;clickable(stat,()->{alertFilter=filter;render();});weight(line,stat);}stats.addView(line);
+        chips(body,new String[]{"全部","严重","警告","已恢复"},alertFilter,n->{alertFilter=n;render();});if(!alertSearch.isEmpty()){body.addView(action("搜索：“"+alertSearch+"”  ×",()->{alertSearch="";render();}));space(body,12);}
+        int shown=0;
+        for(MonitorDatabase.Event e:all){
+            if(alertFilter==1&&(e.ended>0||e.level!=2)||alertFilter==2&&(e.ended>0||e.level!=1)||alertFilter==3&&!(e.ended>0&&"recovered".equals(e.resolution)))continue;
+            JSONObject host=host(e.host);String name=host==null?"已移除的设备":host.optString("name");if(!(e.title+e.detail+name).toLowerCase(Locale.ROOT).contains(alertSearch.toLowerCase(Locale.ROOT)))continue;shown++;
+            int color=e.ended>0?accent:e.level==2?RED:AMBER;LinearLayout c=card(),title=row();title.addView(new MonitorViews.Dot(this,color,e.ended==0),new LinearLayout.LayoutParams(dp(14),dp(14)));TextView nameLabel=label(eventTitle(e),13,text,true);nameLabel.setMaxLines(2);weight(title,nameLabel);
+            TextView badge=label(e.ended>0?(e.resolution.equals("disabled")?"已关闭":"已恢复"):e.level==2?"严重":"警告",9,color,true);badge.setPadding(dp(6),dp(4),dp(6),dp(4));badge.setBackground(shape((color&0xffffff)|0x18000000,5));title.addView(badge);c.addView(title);space(c,9);c.addView(label(e.detail,11,muted,false));space(c,10);c.addView(mono(ago(e.updated)+" · 持续 "+duration(((e.ended>0?e.ended:e.updated)-e.started)/1000d)+" · "+name,9,muted));
+            clickable(c,()->new AlertDialog.Builder(this).setTitle(e.title).setMessage(name+"\n\n"+e.detail+"\n\n开始："+new SimpleDateFormat("MM-dd HH:mm:ss",Locale.getDefault()).format(new Date(e.started))+(e.ended>0?"\n结束："+new SimpleDateFormat("MM-dd HH:mm:ss",Locale.getDefault()).format(new Date(e.ended)):"\n仍待恢复；缺失采样不会自动解除告警。")).setPositiveButton("查看设备",(dialog,w)->{if(host!=null){selected=e.host;detailTab=0;navigate("details");}}).setNegativeButton("关闭",null).show());
+        }
+        if(shown==0){LinearLayout c=card();space(c,12);c.addView(new MonitorViews.Icon(this,"check",accent),new LinearLayout.LayoutParams(dp(30),dp(30)));space(c,14);c.addView(label(alertSearch.isEmpty()?"当前没有这类告警":"没有匹配的告警",16,text,true));space(c,8);c.addView(label("持续超阈值的真实采样会记录在这里，恢复后自动归档。",12,muted,false));space(c,10);}
+        heading("阈值速览","全部设备");LinearLayout rules=card();for(int i=0;i<4;i++){String rule=new String[]{"cpu","memory","gpu","disk"}[i],name=new String[]{"CPU","内存","GPU 温度","磁盘"}[i],unit=rule.equals("gpu")?"°C":"%";kv(rules,name,settings.enabled(rule)?"> "+settings.threshold(rule)+unit+" 警告 · > "+settings.critical(rule)+unit+" 严重":"已停用",text,i<3);}clickable(rules,()->navigate("settings"));
+    }
+    private String eventTitle(MonitorDatabase.Event e){if(e.ended<=0||!"recovered".equals(e.resolution))return e.title;if(e.title.equals("采集端无法连接"))return "采集端连接已恢复";if(e.title.endsWith("空间不足"))return e.title.replace("空间不足","空间已恢复");return e.title.replace("偏高","已恢复");}
+    private void searchAlerts(){EditText input=new EditText(this);input.setSingleLine();input.setText(alertSearch);input.setHint("搜索主机、指标或告警内容");new AlertDialog.Builder(this).setTitle("搜索告警").setView(input).setPositiveButton("搜索",(d,w)->{alertSearch=input.getText().toString().trim();render();}).setNegativeButton("取消",null).show();}
+    private void settings(){
+        title("设置",null);heading("采集","所有设备");LinearLayout collection=card();
+        settingRow(collection,"前台刷新间隔",settings.interval()+" 秒",()->choose("前台刷新间隔",new String[]{"5 秒","10 秒","15 秒","30 秒"},index(settings.interval(),new int[]{5,10,15,30}),n->{settings.put("interval",new int[]{5,10,15,30}[n]);handler.removeCallbacks(tick);handler.post(tick);}),true);
+        settingRow(collection,"离线判定","连续 "+settings.failures()+" 次失败",()->choose("离线失败次数",new String[]{"连续 2 次","连续 3 次","连续 5 次"},index(settings.failures(),new int[]{2,3,5}),n->settings.put("failures",new int[]{2,3,5}[n])),true);
+        settingRow(collection,"历史保留",settings.retention()+" 天",()->choose("历史保留",new String[]{"1 天","7 天","30 天"},index(settings.retention(),new int[]{1,7,30}),n->{settings.put("retention",new int[]{1,7,30}[n]);executor.execute(()->database.pruneNow(settings.retention()));}),true);
+        settingRow(collection,"后台定时检查",settings.background()?"已开启":"未开启",()->{settings.put("background",!settings.background());MonitorJob.schedule(this);render();},false);space(collection,11);collection.addView(label("前台刷新频率独立于服务器采样。后台由 Android 调度，至少 15 分钟，省电或断网时可能延迟。",10,muted,false));
+        heading("桌面挂件","后台持续更新");LinearLayout widgetLive=card();settingRow(widgetLive,"桌面实时刷新",WidgetBackgroundController.status(this),()->{WidgetBackgroundController.setEnabled(this,!settings.liveWidgets());render();},true);settingRow(widgetLive,"通知与省电设置","小米后台设置",()->WidgetBackgroundController.systemSettings(this),false);space(widgetLive,10);widgetLive.addView(label("开启后显示常驻通知，App 在后台时每 15 秒更新挂件；关闭后只保留系统定时更新。",10,muted,false));if(settings.liveWidgets()&&!WidgetLiveService.lastError().isEmpty()){space(widgetLive,8);widgetLive.addView(label(WidgetLiveService.lastError(),11,AMBER,false));}
+        heading("告警规则","5 条 · 点击编辑");LinearLayout rules=card();String[] keys={"cpu","memory","gpu","disk","offline"},names={"CPU 使用率","内存使用率","GPU 温度","磁盘占用","采集端掉线"};
+        for(int i=0;i<keys.length;i++){String rule=keys[i],value=rule.equals("offline")?"> "+settings.offlineSeconds()+" 秒":"> "+settings.threshold(rule)+(rule.equals("gpu")?"°C":"%");settingRow(rules,names[i],settings.enabled(rule)?value:"已停用",()->editRule(rule),i<4);}space(rules,10);rules.addView(label("高占用与温度需持续观察 1 分钟；回落 5 个单位后恢复。离线同时满足失败次数与时间阈值。",10,muted,false));
+        heading("通知",null);LinearLayout notifications=card();settingRow(notifications,"系统通知",settings.notificationLevel()==0?"关闭":settings.notificationLevel()==1?"严重 + 警告":"仅严重",this::notificationChoice,true);settingRow(notifications,"静默时段",settings.quiet()?clock(settings.quietStart())+" – "+clock(settings.quietEnd()):"未开启",this::quietDialog,false);
+        if(settings.notificationLevel()>0&&!getSystemService(NotificationManager.class).areNotificationsEnabled()){space(notifications,10);notifications.addView(action("允许系统通知",()->startActivity(new Intent("android.settings.APP_NOTIFICATION_SETTINGS").putExtra("android.provider.extra.APP_PACKAGE",getPackageName()))));}
+        heading("外观",null);LinearLayout appearance=card();settingRow(appearance,"主题",settings.theme().equals("system")?"跟随系统":settings.theme().equals("dark")?"深色":"浅色",()->choose("主题",new String[]{"跟随系统","浅色","深色"},settings.theme().equals("system")?0:settings.theme().equals("light")?1:2,n->{settings.put("theme",new String[]{"system","light","dark"}[n]);recreate();}),true);
+        int widgets=MonitorWidget.count(this);settingRow(appearance,"主屏挂件",widgets+" 个",this::chooseWidget,false);space(body,4);TextView info=label("节点监控 · 本地保存历史与告警\n动效跟随系统动画设置，数据缺失显示 —",10,muted,false);info.setGravity(Gravity.CENTER);body.addView(info);space(body,12);
+    }
+    private String clock(int m){return String.format(Locale.ROOT,"%02d:%02d",m/60,m%60);}
+    private int index(int v,int[] a){for(int i=0;i<a.length;i++)if(a[i]==v)return i;return 0;}
+    private void settingRow(LinearLayout c,String name,String value,Runnable tap,boolean separator){LinearLayout line=row();line.setMinimumHeight(dp(31));weight(line,label(name,12,muted,false));line.addView(mono(value,11,value.contains("开启")||value.contains("严重")?accent:text));spaceHorizontal(line,4);line.addView(new MonitorViews.Icon(this,"chevron",muted),new LinearLayout.LayoutParams(dp(13),dp(13)));clickable(line,tap);c.addView(line);if(separator)divider(c);}
+    private void choose(String title,String[] choices,int selected,java.util.function.IntConsumer set){new AlertDialog.Builder(this).setTitle(title).setSingleChoiceItems(choices,selected,(dialog,w)->{set.accept(w);dialog.dismiss();render();}).setNegativeButton("取消",null).show();}
+    private void editRule(String rule){
+        boolean offline=rule.equals("offline");LinearLayout fields=column();fields.setPadding(dp(24),dp(5),dp(24),dp(4));CheckBox enabled=new CheckBox(this);enabled.setText("启用此规则");enabled.setChecked(settings.enabled(rule));fields.addView(enabled);EditText value=new EditText(this);value.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);value.setSingleLine();value.setText(""+(offline?settings.offlineSeconds():settings.threshold(rule)));value.setHint(offline?"秒数（5–600）":rule.equals("gpu")?"温度（30–110°C）":"占用（10–94%）");fields.addView(value);fields.addView(label(offline?"同时满足连续失败次数和持续时间才触发。":"高于阈值持续 1 分钟触发警告，严重阈值自动增加，回落 5 个单位后恢复。",12,muted,false));
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("编辑告警规则").setView(fields).setPositiveButton("保存",null).setNegativeButton("取消",null).create();dialog.setOnShowListener(d->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{try{int n=Integer.parseInt(value.getText().toString()),min=offline?5:rule.equals("gpu")?30:10,max=offline?600:rule.equals("gpu")?110:94;if(n<min||n>max){value.setError("请输入 "+min+"–"+max);return;}settings.put(offline?"offline":rule,n);settings.put("enabled_"+rule,enabled.isChecked());if(!enabled.isChecked())executor.execute(()->database.disableRule(rule));dialog.dismiss();render();}catch(NumberFormatException e){value.setError("请输入整数");}}));dialog.show();
+    }
+    private void notificationChoice(){choose("系统通知",new String[]{"关闭","严重 + 警告","仅严重"},settings.notificationLevel(),n->{settings.put("notification_level",n);if(n>0&&Build.VERSION.SDK_INT>=33&&checkSelfPermission("android.permission.POST_NOTIFICATIONS")!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},9274);});}
+    @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results){super.onRequestPermissionsResult(request,permissions,results);if(request==WidgetBackgroundController.NOTIFICATION_REQUEST){WidgetLiveService.ensureRunning(this);render();return;}if(request==9274){if(results.length==0||results[0]!=PackageManager.PERMISSION_GRANTED){settings.put("notification_level",0);Toast.makeText(this,"未允许系统通知，告警仍会保存在应用内",Toast.LENGTH_LONG).show();}render();}}
+    private void quietDialog(){new AlertDialog.Builder(this).setTitle("静默时段").setItems(new String[]{"关闭静默","设置开始和结束时间"},(d,w)->{if(w==0){settings.put("quiet",false);render();}else new TimePickerDialog(this,(picker,h,m)->{int start=h*60+m;new TimePickerDialog(this,(p,eh,em)->{int end=eh*60+em;if(start==end){Toast.makeText(this,"开始和结束时间不能相同",Toast.LENGTH_LONG).show();return;}settings.put("quiet_start",start);settings.put("quiet_end",end);settings.put("quiet",true);render();},settings.quietEnd()/60,settings.quietEnd()%60,true).show();},settings.quietStart()/60,settings.quietStart()%60,true).show();}).setNegativeButton("取消",null).show();}
+    private void refresh(){
+        for(int i=0;i<hosts.length();i++){
+            JSONObject h=hosts.optJSONObject(i);if(h==null)continue;String id=h.optString("id");if(inFlight.contains(id))continue;
+            final JSONObject copy;try{copy=new JSONObject(h.toString());}catch(Exception e){continue;}
+            PollCoordinator.Lease lease=PollCoordinator.acquire(id);if(lease==null)continue;inFlight.add(id);
+            executor.execute(()->{
+                JSONObject sample=null;String error=null;long started=SystemClock.elapsedRealtime();
+                try{
+                    try{sample=MonitorClient.fetch(this,copy);}catch(Exception | LinkageError e){error=e instanceof LinkageError?"远程组件无法加载，请检查手机架构":e.getMessage()==null?"连接失败":e.getMessage();}
+                    if(!Thread.currentThread().isInterrupted())database.record(copy,sample,error,SystemClock.elapsedRealtime()-started,System.currentTimeMillis());
+                }finally{lease.close();}
+                JSONObject result=sample;String failure=error;
+                handler.post(()->{
+                    inFlight.remove(id);JSONObject current=host(id);if(destroyed||current==null)return;
+                    if(!current.toString().equals(copy.toString())){if(foreground)refresh();return;}
+                    if(result!=null){JSONObject previous=snapshots.get(id);if(previous==null||MonitorDatabase.sampleTime(result)>=MonitorDatabase.sampleTime(previous))snapshots.put(id,result);errors.remove(id);}else errors.put(id,failure);
+                    handler.removeCallbacks(repaint);handler.postDelayed(repaint,150);MonitorWidget.updateAll(this);
+                });
             });
-            root.requestApplyInsets();
-        }
-        header=row(); header.setPadding(dp(22),dp(20),dp(22),dp(12)); root.addView(header);
-        scroller=new ScrollView(this); scroller.setFillViewport(true); body=column(); body.setPadding(dp(20),dp(4),dp(20),dp(14)); scroller.addView(body); root.addView(scroller,new LinearLayout.LayoutParams(-1,0,1));
-        if(page.equals("devices")) devices(); else if(page.equals("details")) details(); else if(page.equals("discover")) discoveryPage(); else settings();
-        if(page.equals("devices") || page.equals("settings")) {
-            LinearLayout nav=row(); nav.setPadding(dp(32),dp(8),dp(32),dp(8)); nav.setBackgroundColor(card);
-            weight(nav,navItem("◉  设备",page.equals("devices"),()->{page="devices";render();}));
-            weight(nav,navItem("⚙  设置",page.equals("settings"),()->{page="settings";render();})); root.addView(nav);
-        } else if(page.equals("details") && host(selected)!=null) {
-            JSONObject widgetHost=host(selected); TextView add=label("＋   添加桌面挂件",14,dark?0xff182119:Color.WHITE,true);
-            add.setGravity(Gravity.CENTER); add.setBackground(shape(dark?0xffc4e6a7:0xff222c22,32));
-            add.setOnClickListener(v->pinWidget(widgetHost));
-            LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,dp(48)); ap.setMargins(dp(20),dp(4),dp(20),dp(10)); root.addView(add,ap);
-        }
-        if(previousScroll>0) { ScrollView restoring=scroller; restoring.post(()->restoring.scrollTo(0,previousScroll)); }
-    }
-    private void spaceHorizontal(LinearLayout l,int w) { l.addView(new View(this),new LinearLayout.LayoutParams(dp(w),1)); }
-    private LinearLayout card() { LinearLayout c=column(); c.setPadding(dp(16),dp(16),dp(16),dp(16)); GradientDrawable surface=shape(card,22); surface.setStroke(dp(1),dark?0xff344235:0xffe7ece3); c.setBackground(surface); LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2); lp.bottomMargin=dp(14); body.addView(c,lp); return c; }
-    private void title(String title,String subtitle) { LinearLayout t=column(); TextView heading=label(title,21,text,true); heading.setSingleLine(true); heading.setEllipsize(TextUtils.TruncateAt.END); t.addView(heading); if(subtitle!=null) { TextView sub=label(subtitle,12,muted,false); sub.setPadding(0,dp(5),0,0); t.addView(sub); } weight(header,t); }
-    private TextView navItem(String name, boolean active, Runnable tap) {
-        TextView item=label(name,13,active?text:muted,active); item.setGravity(Gravity.CENTER);
-        item.setPadding(dp(10),dp(11),dp(10),dp(11)); item.setOnClickListener(v->tap.run()); return item;
-    }
-    private void divider(LinearLayout target) { View v=new View(this); v.setBackgroundColor(track); LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(1)); lp.setMargins(0,dp(12),0,dp(12)); target.addView(v,lp); }
-    private RingGauge ring(String key, JSONObject value, String name) {
-        Double current=Metrics.number(value,"usagePercent"), previous=ringValues.get(key);
-        if(current!=null) ringValues.put(key,current); else ringValues.remove(key);
-        RingGauge gauge=new RingGauge(this,current,previous,dark,()->foreground && !destroyed);
-        gauge.setContentDescription(name+"，使用率 "+Metrics.percent(value,"usagePercent")+"，温度 "+Metrics.temp(value,"temperatureCelsius"));
-        return gauge;
-    }
-    private void sectionHeading(LinearLayout target,String name,String count) {
-        LinearLayout line=row(); weight(line,label("●  "+name,13,text,true)); line.addView(label(count,11,muted,false)); target.addView(line); space(target,8);
-    }
-    private String shortGpu(JSONObject g) {
-        String name=g==null?"显卡":g.optString("name","显卡");
-        return name.replace("NVIDIA GeForce ","").replace("NVIDIA ","").replace("AMD Radeon ","");
-    }
-    private LinearLayout homeGauge(String key,String name,String sub,JSONObject value) {
-        LinearLayout item=row(); RingGauge gauge=ring(key,value,name); item.addView(gauge,new LinearLayout.LayoutParams(dp(58),dp(58))); spaceHorizontal(item,6);
-        LinearLayout info=column(); TextView nameLabel=label(name,12,text,true); nameLabel.setSingleLine(true); info.addView(nameLabel);
-        TextView subLabel=label(sub,10,muted,false); subLabel.setSingleLine(true); subLabel.setEllipsize(TextUtils.TruncateAt.END); info.addView(subLabel);
-        TextView temp=label(Metrics.temp(value,"temperatureCelsius"),11,muted,true); temp.setPadding(0,dp(3),0,0); info.addView(temp); weight(item,info); return item;
-    }
-    private void homeGrid(LinearLayout target,String hostId,JSONArray values,JSONObject snapshot,boolean gpu) {
-        LinearLayout line=null; int displayed=0;
-        for(int i=0;i<values.length();i++) {
-            JSONObject value=values.optJSONObject(i); if(value==null) continue;
-            if(displayed%2==0) { line=row(); target.addView(line); }
-            JSONObject shown=gpu?Metrics.freshGpu(snapshot,value):value;
-            String kind=gpu?"GPU":"CPU", label=kind+" "+(i+1);
-            String sub=gpu?shortGpu(value):"处理器";
-            weight(line,homeGauge(hostId+":"+kind+":"+i,label,sub,shown)); displayed++;
-            if(displayed%2==0) space(target,8);
-        }
-        if(displayed%2==1 && line!=null) weight(line,new View(this));
-    }
-    private void devices() {
-        int online=0; for(int i=0;i<hosts.length();i++) { JSONObject h=hosts.optJSONObject(i); if(h!=null && snapshots.containsKey(h.optString("id"))) online++; }
-        title("节点监控",online+" / "+hosts.length()+" 台设备在线"); header.addView(action("＋",this::addChoice));
-        if(hosts.length()==0) { LinearLayout empty=card(); empty.addView(label("连接你的第一台主机",19,text,true)); space(empty,8); empty.addView(label("添加已运行采集端的 Ubuntu 或 Windows 主机。",13,muted,false)); space(empty,15); empty.addView(action("添加主机",this::addChoice)); return; }
-        for(int i=0;i<hosts.length();i++) {
-            JSONObject h=hosts.optJSONObject(i); if(h==null) continue; String id=h.optString("id"); JSONObject s=snapshots.get(id);
-            LinearLayout intro=column(); intro.setPadding(dp(2),dp(8),dp(2),dp(12)); body.addView(intro);
-            LinearLayout status=row(); weight(status,label(s!=null?"● 设备在线":"● "+(errors.containsKey(id)?"连接失败":"等待连接"),12,s!=null?green:muted,true));
-            if(s!=null)status.addView(label("最近更新 "+Metrics.sampleTime(s),10,muted,false)); intro.addView(status); space(intro,11);
-            LinearLayout identity=row(); LinearLayout info=column(); TextView name=label(h.optString("name"),19,text,true); name.setSingleLine(true); name.setEllipsize(TextUtils.TruncateAt.END); info.addView(name);
-            JSONObject server=s==null?null:s.optJSONObject("host"); info.addView(label((h.optString("mode").equals("tailnet")?"远程网络":"局域网")+(server==null?"":"  ·  "+server.optString("os")),11,muted,false)); weight(identity,info); identity.addView(label("↗",22,muted,false)); intro.addView(identity);
-            Runnable open=()->{selected=id;page="details";render();}; intro.setOnClickListener(v->open.run());
-            LinearLayout c=card(); c.setOnClickListener(v->open.run());
-            LinearLayout top=row(); weight(top,label("硬件概览",15,text,true)); top.addView(label("实时状态",11,muted,false)); c.addView(top); space(c,16);
-            if(s!=null) {
-                JSONObject cpu=s.optJSONObject("cpu"); JSONArray packages=cpu==null?null:cpu.optJSONArray("packages");
-                if(packages!=null && packages.length()>0) {sectionHeading(c,"CPU",packages.length()+" 颗处理器"); homeGrid(c,id,packages,s,false);}
-                else {sectionHeading(c,"CPU","总体"); LinearLayout one=row(); weight(one,homeGauge(id+":CPU:total","CPU 总体","处理器",cpu)); weight(one,new View(this)); c.addView(one);}
-                divider(c); JSONArray gpus=s.optJSONArray("gpus"); sectionHeading(c,"GPU",gpus==null?"0 张显卡":gpus.length()+" 张显卡");
-                if(gpus!=null && gpus.length()>0) homeGrid(c,id,gpus,s,true); else c.addView(label("当前没有可用的显卡读数",12,muted,false));
-                divider(c); LinearLayout memory=row(); weight(memory,label("▦  内存",12,muted,false)); memory.addView(label(Metrics.size(s.optJSONObject("memory"),"usedBytes")+" / "+Metrics.size(s.optJSONObject("memory"),"totalBytes"),12,text,true)); c.addView(memory);
-                space(c,12); LinearLayout footer=row(); weight(footer,label("每个硬件独立显示",10,muted,false)); footer.addView(label("查看详情 ↗",10,muted,false)); c.addView(footer);
-            } else c.addView(label(errors.getOrDefault(id,"正在连接…"),12,muted,false));
         }
     }
+    @Override public void onBackPressed(){if(!page.equals("devices"))navigate("devices");else super.onBackPressed();}
+
     private void addChoice() { new AlertDialog.Builder(this).setTitle("添加主机").setItems(new String[]{"登录 Tailscale，自动查找", "局域网 / 手动添加"},(dialog,which)->{if(which==0){page="discover";discovered=new JSONArray();render();scanRemote();}else hostDialog(null);}).show(); }
     private void discoveryPage() {
         header.addView(action("‹",()->{page="devices";render();})); spaceHorizontal(header,12); title("自动添加主机","Tailscale 远程连接");
@@ -193,83 +254,14 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle(peer.optString("name","服务器")).setMessage("这台服务器尚未启用 Tailscale 账号认证。请先升级采集端并启用该功能；如果已有采集端令牌，也可以在此填写一次。地址已自动识别。").setView(token).setNegativeButton("稍后",null).setPositiveButton("使用令牌添加",(d,w)->{String value=token.getText().toString();if(value.isEmpty()){Toast.makeText(this,"请先填写令牌，或升级服务器后重新查找",Toast.LENGTH_LONG).show();return;}saveDiscovered(peer,value);}).show();
     }
     private void saveDiscovered(JSONObject peer,String token) {
-        try { String address=peer.getString("address"); MonitorClient.tailnet(address); for(int i=0;i<hosts.length();i++){JSONObject prior=hosts.optJSONObject(i);if(prior!=null && address.equals(prior.optString("tailnetAddress"))){JSONObject updated=new JSONObject(prior.toString());updated.put("address",address);updated.put("mode","tailnet");updated.put("token",store.protect(token));hosts.put(i,updated);store.save(hosts);selected=updated.optString("id");snapshots.remove(selected);errors.remove(selected);page="details";render();refresh();MonitorWidget.schedule(this);return;}} JSONObject host=new JSONObject();host.put("id",UUID.randomUUID().toString());host.put("name",peer.optString("name","服务器"));host.put("address",address);host.put("directAddress","");host.put("tailnetAddress",address);host.put("mode","tailnet");host.put("allowLan",false);host.put("token",store.protect(token));hosts.put(host);store.save(hosts);selected=host.getString("id");page="details";render();refresh();MonitorWidget.schedule(this); } catch(Exception e) {Toast.makeText(this,"无法添加服务器，请重试",Toast.LENGTH_SHORT).show();}
+        try { String address=peer.getString("address"); MonitorClient.tailnet(address); for(int i=0;i<hosts.length();i++){JSONObject prior=hosts.optJSONObject(i);if(prior!=null && address.equals(prior.optString("tailnetAddress"))){JSONObject updated=new JSONObject(prior.toString());updated.put("address",address);updated.put("mode","tailnet");updated.put("token",store.protect(token));hosts.put(i,updated);store.save(hosts);selected=updated.optString("id");snapshots.remove(selected);errors.remove(selected);page="details";render();refresh();MonitorWidget.schedule(this);MonitorJob.schedule(this);return;}} JSONObject host=new JSONObject();host.put("id",UUID.randomUUID().toString());host.put("name",peer.optString("name","服务器"));host.put("address",address);host.put("directAddress","");host.put("tailnetAddress",address);host.put("mode","tailnet");host.put("allowLan",false);host.put("token",store.protect(token));hosts.put(host);store.save(hosts);selected=host.getString("id");page="details";render();refresh();MonitorWidget.schedule(this);MonitorJob.schedule(this); } catch(Exception e) {Toast.makeText(this,"无法添加服务器，请重试",Toast.LENGTH_SHORT).show();}
     }
     private void openWidgetHost(Intent intent) {
         if(intent==null)return; String id=intent.getStringExtra(MonitorWidget.EXTRA_HOST_ID);
         if(id!=null && host(id)!=null) {selected=id;page="details";}
     }
-    @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); openWidgetHost(intent); render(); if(foreground)refresh(); }
-    private void pinWidget(JSONObject h) {
-        store.setWidgetHost(h.optString("id")); JSONObject snapshot=snapshots.get(h.optString("id"));
-        MonitorWidget.update(this,h,snapshot,snapshot==null?"等待更新":"在线 · "+Metrics.sampleTime(snapshot)); MonitorWidget.schedule(this);
-        AppWidgetManager manager=AppWidgetManager.getInstance(this);
-        boolean requested=false;
-        try {
-            requested=manager.isRequestPinAppWidgetSupported() && manager.requestPinAppWidget(new ComponentName(this,MonitorWidget.class),null,null);
-        } catch(RuntimeException ignored) { }
-        // A successful request only means the launcher supports pinning, not that it displayed a prompt or added the widget.
-        String message=requested?"已向手机桌面发送添加请求。如果出现系统确认，请确认添加；如果没有弹窗，可以手动添加：":"已选择此主机。当前桌面无法直接添加，可以手动添加：";
-        message+="\n\n长按手机桌面空白处 → 小部件 → 节点监控。\n\n小米手机如果没有找到：在小部件页面点击搜索，再选底部的“安卓小部件”，找到绿色圆环图标的“节点监控”。已有挂件会显示此主机。";
-        new AlertDialog.Builder(this).setTitle("添加桌面挂件").setMessage(message)
-            .setNegativeButton("知道了",null)
-            .setPositiveButton("返回桌面",(dialog,which)->{
-                try { Intent home=new Intent(Intent.ACTION_MAIN); home.addCategory(Intent.CATEGORY_HOME); home.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(home); }
-                catch(ActivityNotFoundException e) { Toast.makeText(this,"请返回手机桌面添加挂件",Toast.LENGTH_LONG).show(); }
-            }).show();
-    }
-    private void detailGauge(LinearLayout target,String key,String name,String sub,JSONObject value,boolean gpu) {
-        LinearLayout line=row(); line.setPadding(0,dp(5),0,dp(5)); line.addView(ring(key,value,name),new LinearLayout.LayoutParams(dp(54),dp(54))); spaceHorizontal(line,12);
-        LinearLayout info=column(); LinearLayout top=row(); TextView labelName=label(name,13,text,true); top.addView(labelName); spaceHorizontal(top,8);
-        if(gpu) {TextView model=label(sub,11,muted,false); model.setSingleLine(true); model.setEllipsize(TextUtils.TruncateAt.END); weight(top,model);} else weight(top,new View(this));
-        top.addView(label(Metrics.temp(value,"temperatureCelsius"),13,text,true)); info.addView(top);
-        if(gpu) {
-            space(info,5); LinearLayout memory=row(); weight(memory,label("显存",10,muted,false)); memory.addView(label(Metrics.size(value,"memoryUsedBytes")+" / "+Metrics.size(value,"memoryTotalBytes"),10,muted,true)); info.addView(memory); space(info,4);
-            Double used=Metrics.number(value,"memoryUsedBytes"), total=Metrics.number(value,"memoryTotalBytes"); progress(info,total!=null && total>0 && used!=null?100*used/total:null);
-        } else {space(info,4);info.addView(label("处理器使用率 · 温度",11,muted,false));}
-        weight(line,info); target.addView(line); divider(target);
-    }
-    private void progress(LinearLayout target, Double value) {
-        android.widget.ProgressBar bar=new android.widget.ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal); bar.setMax(1000); bar.setProgress(value==null?0:(int)(Math.max(0,Math.min(100,value))*10));
-        bar.setProgressTintList(android.content.res.ColorStateList.valueOf(0xffa8ca81)); bar.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(track)); target.addView(bar,new LinearLayout.LayoutParams(-1,dp(4)));
-    }
-    private void details() {
-        JSONObject h=host(selected); if(h==null) {page="devices";render();return;}
-        header.addView(action("‹",()->{page="devices";render();})); spaceHorizontal(header,10); title(h.optString("name"),h.optString("mode").equals("tailnet")?"远程网络  ·  Tailscale":"局域网 / HTTPS"); header.addView(action("编辑",()->hostDialog(h)));
-        JSONObject s=snapshots.get(selected);
-        if(s==null) {
-            LinearLayout offline=card(); offline.addView(label("● 连接中 / 离线",16,text,true)); space(offline,7); offline.addView(label(errors.getOrDefault(selected,"正在连接…"),12,muted,false)); space(offline,10); offline.addView(action("重新连接",this::refresh));
-            if(h.optString("mode").equals("tailnet")) {space(offline,8);offline.addView(action("登录远程网络",this::login));} return;
-        }
-        LinearLayout state=row(); state.setPadding(0,dp(12),0,dp(12)); weight(state,label("●  在线",13,green,true)); state.addView(label("采样 "+Metrics.sampleTime(s),11,muted,false)); body.addView(state); divider(body);
-        JSONObject cpu=s.optJSONObject("cpu"); JSONArray packages=cpu==null?null:cpu.optJSONArray("packages");
-        sectionHeading(body,"处理器",packages!=null && packages.length()>0?packages.length()+" 颗 CPU":"总体");
-        if(packages!=null && packages.length()>0) { for(int i=0;i<packages.length();i++) {JSONObject p=packages.optJSONObject(i);if(p!=null)detailGauge(body,selected+":CPU:"+i,"CPU "+(i+1),"",p,false);} }
-        else detailGauge(body,selected+":CPU:total","CPU 总体","",cpu,false);
-        JSONArray gpus=s.optJSONArray("gpus"); sectionHeading(body,"显卡",gpus==null?"0 张 GPU":gpus.length()+" 张 GPU");
-        if(gpus==null || gpus.length()==0) {body.addView(label("当前没有可用的 GPU 读数",12,muted,false));divider(body);}
-        else for(int i=0;i<gpus.length();i++) {JSONObject g=gpus.optJSONObject(i);if(g!=null)detailGauge(body,selected+":GPU:"+i,"GPU "+(i+1),shortGpu(g),Metrics.freshGpu(s,g),true);}
-        JSONObject memory=s.optJSONObject("memory"); sectionHeading(body,"系统内存",Metrics.percent(memory,"usagePercent")+" 已使用");
-        LinearLayout mem=row(); weight(mem,label(Metrics.size(memory,"usedBytes")+" / "+Metrics.size(memory,"totalBytes"),12,muted,false)); mem.addView(label(Metrics.percent(memory,"usagePercent"),12,text,true)); body.addView(mem); space(body,8); progress(body,Metrics.number(memory,"usagePercent")); divider(body);
-        JSONObject net=s.optJSONObject("network"); sectionHeading(body,"网络","当前速率"); body.addView(label("↓ 下行  "+rate(net,"receiveBytesPerSecond")+"      ↑ 上行  "+rate(net,"sendBytesPerSecond"),12,text,true)); divider(body);
-        LinearLayout chart=column(); body.addView(chart); chart.addView(label("CPU 使用率趋势",13,text,true)); space(chart,7); chart.addView(new TrendView(history.get(selected)),new LinearLayout.LayoutParams(-1,dp(70))); chart.addView(label("仅显示打开应用后的数据",10,muted,false));
-        JSONArray disks=s.optJSONArray("disks"); if(disks!=null && disks.length()>0) { divider(body); sectionHeading(body,"磁盘",""); for(int i=0;i<disks.length();i++) {JSONObject d=disks.optJSONObject(i);if(d==null)continue;Double total=Metrics.number(d,"totalBytes"),used=Metrics.number(d,"usedBytes");metric(body,d.optString("mount"),Metrics.size(d,"usedBytes"),Metrics.size(d,"totalBytes"),total!=null && total>0 && used!=null?100*used/total:null,green);} }
-        JSONArray warnings=s.optJSONArray("warnings"); if(warnings!=null && warnings.length()>0) {divider(body);for(int i=0;i<warnings.length();i++)body.addView(label(warnings.optString(i),11,muted,false));}
-        if(!h.optString("directAddress").isEmpty() && !h.optString("tailnetAddress").isEmpty()) {divider(body);LinearLayout choice=row();boolean remote=h.optString("mode").equals("tailnet");weight(choice,action(remote?"局域网":"✓ 局域网",()->switchMode(h,false)));spaceHorizontal(choice,10);weight(choice,action(remote?"✓ 远程":"远程",()->switchMode(h,true)));body.addView(choice);}
-    }
-    private String rate(JSONObject n,String key) { Double value=Metrics.number(n,key); return value==null?"—":String.format(java.util.Locale.ROOT,"%.0f KiB/s",value/1024); }
-    private void metric(LinearLayout target,String name,String value,String extra,Double progress,int color) {
-        LinearLayout line=row(); TextView left=label(name,13,text,false); line.addView(left,new LinearLayout.LayoutParams(dp(72),-2)); TextView val=label(value,13,text,true); line.addView(val); if(extra!=null && !extra.isEmpty()) {TextView e=label("  "+extra,11,muted,false); e.setGravity(Gravity.RIGHT); weight(line,e);} target.addView(line); space(target,6);
-        android.widget.ProgressBar bar=new android.widget.ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal); bar.setMax(1000); bar.setProgress(progress==null?0:(int)(Math.max(0,Math.min(100,progress))*10)); bar.setProgressTintList(android.content.res.ColorStateList.valueOf(color)); bar.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(track)); target.addView(bar,new LinearLayout.LayoutParams(-1,dp(5))); space(target,12);
-    }
-    private void settings() { title("设置","让监控保持轻盈"); LinearLayout appearance=card(); appearance.addView(label("界面外观",17,text,true)); space(appearance,7); appearance.addView(label("选择适合你的显示模式",13,muted,false)); space(appearance,12); LinearLayout choices=row(); weight(choices,action("深色",()->{dark=true;store.setDark(true);render();})); spaceHorizontal(choices,10); weight(choices,action("浅色",()->{dark=false;store.setDark(false);render();})); appearance.addView(choices); LinearLayout about=card(); about.addView(label("更新与桌面挂件",17,text,true)); space(about,8); about.addView(label("应用在前台时约每 5 秒更新，圆环轻微运动并反映真实采样。桌面挂件由 Android 安排后台更新，通常不少于 30 分钟；挂件圆环保持静态以节省电量，点击可打开主机详情并刷新。",13,muted,false)); }
-    private void refresh() {
-        for(int i=0;i<hosts.length();i++) { JSONObject h=hosts.optJSONObject(i); if(h==null)continue; String id=h.optString("id"); if(inFlight.contains(id))continue; inFlight.add(id); final JSONObject copy; try { copy=new JSONObject(h.toString()); } catch(Exception ex) {inFlight.remove(id);continue;}
-            executor.execute(()->{ JSONObject sample=null; String failure=null; try{sample=MonitorClient.fetch(this,copy);}catch(Exception e){failure=e.getMessage()==null?"连接失败":e.getMessage();} JSONObject result=sample; String error=failure;
-                handler.post(()->{inFlight.remove(id); JSONObject latest=host(id); if(destroyed || latest==null)return; if(!latest.toString().equals(copy.toString())) { if(foreground)refresh(); return; } if(result!=null) {snapshots.put(id,result); errors.remove(id); Double cpu=Metrics.number(result.optJSONObject("cpu"),"usagePercent"); if(cpu!=null){ArrayDeque<Float> q=history.computeIfAbsent(id,k->new ArrayDeque<>());q.add(cpu.floatValue());while(q.size()>60)q.removeFirst();}} else {snapshots.remove(id);errors.put(id,error);} if(foreground)render(); JSONObject widgetHost=store.widgetHost(hosts); if(widgetHost!=null && id.equals(widgetHost.optString("id"))) MonitorWidget.update(this,copy,result,result!=null?"● 在线 · "+Metrics.sampleTime(result):"● 离线 · 点击检查连接"); });
-            });
-        }
-    }
+    @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); openWidgetHost(intent); if(intent.getBooleanExtra("open_devices",false))page="devices";if(intent.getBooleanExtra("open_alerts",false))page="alerts"; render(); if(foreground)refresh(); }
+    private void pinWidget(JSONObject h){openWidgetGallery(h);}
     private void login() {
         if(loggingIn)return; loggingIn=true; Toast.makeText(this,"正在准备授权…",Toast.LENGTH_SHORT).show();
         executor.execute(()->{ try {
@@ -285,16 +277,15 @@ public final class MainActivity extends Activity {
             handler.post(()->{loggingIn=false;if(!destroyed)new AlertDialog.Builder(this).setTitle("无法登录 Tailscale").setMessage(message).setPositiveButton("知道了",null).show();});
         } });
     }
-    private void switchMode(JSONObject current, boolean remote) { try { JSONObject item=new JSONObject(current.toString()); item.put("mode",remote?"tailnet":"direct"); item.put("address",item.getString(remote?"tailnetAddress":"directAddress")); for(int i=0;i<hosts.length();i++) if(hosts.optJSONObject(i)!=null && hosts.optJSONObject(i).optString("id").equals(item.optString("id"))) {hosts.put(i,item);break;} store.save(hosts); snapshots.remove(item.optString("id"));errors.remove(item.optString("id"));render();refresh();MonitorWidget.schedule(this); } catch(Exception e){Toast.makeText(this,"无法切换连接",Toast.LENGTH_SHORT).show();} }
+    private void switchMode(JSONObject current, boolean remote) { try { JSONObject item=new JSONObject(current.toString()); item.put("mode",remote?"tailnet":"direct"); item.put("address",item.getString(remote?"tailnetAddress":"directAddress")); for(int i=0;i<hosts.length();i++) if(hosts.optJSONObject(i)!=null && hosts.optJSONObject(i).optString("id").equals(item.optString("id"))) {hosts.put(i,item);break;} store.save(hosts); snapshots.remove(item.optString("id"));errors.remove(item.optString("id"));render();refresh();MonitorWidget.schedule(this);MonitorJob.schedule(this); } catch(Exception e){Toast.makeText(this,"无法切换连接",Toast.LENGTH_SHORT).show();} }
     private void hostDialog(JSONObject existing) {
         LinearLayout fields=column(); fields.setPadding(dp(22),dp(5),dp(22),dp(5)); EditText name=new EditText(this), direct=new EditText(this), remoteAddress=new EditText(this), token=new EditText(this); name.setSingleLine(); direct.setSingleLine(); remoteAddress.setSingleLine(); token.setSingleLine(); token.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD); name.setHint("主机名称"); direct.setHint("局域网 / HTTPS 地址（可留空）"); remoteAddress.setHint("Tailscale 地址（可留空）"); token.setHint(existing==null?"采集端令牌":"令牌（留空保留原令牌）");
         Spinner mode=new Spinner(this); mode.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"局域网 / HTTPS","远程 Tailscale"})); CheckBox allow=new CheckBox(this); allow.setText("允许可信局域网 HTTP（数据不加密）");
         if(existing!=null) {name.setText(existing.optString("name")); boolean remote=existing.optString("mode").equals("tailnet");direct.setText(existing.optString("directAddress",remote?"":existing.optString("address")));remoteAddress.setText(existing.optString("tailnetAddress",remote?existing.optString("address"):""));mode.setSelection(remote?1:0);allow.setChecked(existing.optBoolean("allowLan"));}
         fields.addView(name);fields.addView(mode);fields.addView(direct);fields.addView(remoteAddress);fields.addView(token);fields.addView(allow);
         AlertDialog.Builder b=new AlertDialog.Builder(this).setTitle(existing==null?"添加主机":"编辑主机").setView(fields).setNegativeButton("取消",null).setPositiveButton("保存",null);
-        if(existing!=null) b.setNeutralButton("删除",(dialog,which)->new AlertDialog.Builder(this).setMessage("删除此主机的本地配置？").setNegativeButton("取消",null).setPositiveButton("删除",(d,w)->{JSONArray next=new JSONArray();for(int i=0;i<hosts.length();i++){JSONObject h=hosts.optJSONObject(i);if(h!=null && !h.optString("id").equals(existing.optString("id")))next.put(h);}hosts=next;store.save(hosts);selected="";page="devices";MonitorWidget.schedule(this);render();}).show());
-        AlertDialog dialog=b.create(); dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{try {String n=name.getText().toString().trim(), local=direct.getText().toString().trim(), far=remoteAddress.getText().toString().trim(), secret=token.getText().toString(); boolean remote=mode.getSelectedItemPosition()==1; String a=remote?far:local; if(n.isEmpty() || a.isEmpty() || (existing==null && secret.isEmpty()))throw new Exception("请填写名称、当前连接方式的地址和令牌"); if(!local.isEmpty())MonitorClient.direct(local,allow.isChecked()); if(!far.isEmpty())MonitorClient.tailnet(far); JSONObject item=new JSONObject();item.put("id",existing==null?UUID.randomUUID().toString():existing.getString("id"));item.put("name",n);item.put("address",a);item.put("directAddress",local);item.put("tailnetAddress",far);item.put("mode",remote?"tailnet":"direct");item.put("allowLan",allow.isChecked());item.put("token",secret.isEmpty()?existing.getString("token"):store.protect(secret)); boolean replaced=false; if(existing!=null)for(int i=0;i<hosts.length();i++) if(hosts.optJSONObject(i)!=null && hosts.optJSONObject(i).optString("id").equals(existing.optString("id"))) {hosts.put(i,item);replaced=true;break;} if(!replaced)hosts.put(item);store.save(hosts);snapshots.remove(item.getString("id"));errors.remove(item.getString("id")); selected=item.getString("id");page="details";dialog.dismiss();render();refresh();MonitorWidget.schedule(this);}catch(Exception e){Toast.makeText(this,e.getMessage(),Toast.LENGTH_LONG).show();} })); dialog.show();
+        if(existing!=null) b.setNeutralButton("删除",(dialog,which)->new AlertDialog.Builder(this).setMessage("删除此主机的本地配置？").setNegativeButton("取消",null).setPositiveButton("删除",(d,w)->{JSONArray next=new JSONArray();for(int i=0;i<hosts.length();i++){JSONObject h=hosts.optJSONObject(i);if(h!=null && !h.optString("id").equals(existing.optString("id")))next.put(h);}String removed=existing.optString("id"); snapshots.remove(removed);errors.remove(removed);hosts=next;store.save(hosts);executor.execute(()->database.forget(removed));MonitorWidget.updateAll(this);selected="";page="devices";MonitorWidget.schedule(this);MonitorJob.schedule(this);render();}).show());
+        AlertDialog dialog=b.create(); dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{try {String n=name.getText().toString().trim(), local=direct.getText().toString().trim(), far=remoteAddress.getText().toString().trim(), secret=token.getText().toString(); boolean remote=mode.getSelectedItemPosition()==1; String a=remote?far:local; if(n.isEmpty() || a.isEmpty() || (existing==null && secret.isEmpty()))throw new Exception("请填写名称、当前连接方式的地址和令牌"); if(!local.isEmpty())MonitorClient.direct(local,allow.isChecked()); if(!far.isEmpty())MonitorClient.tailnet(far); JSONObject item=new JSONObject();item.put("id",existing==null?UUID.randomUUID().toString():existing.getString("id"));item.put("name",n);item.put("address",a);item.put("directAddress",local);item.put("tailnetAddress",far);item.put("mode",remote?"tailnet":"direct");item.put("allowLan",allow.isChecked());item.put("token",secret.isEmpty()?existing.getString("token"):store.protect(secret)); boolean replaced=false; if(existing!=null)for(int i=0;i<hosts.length();i++) if(hosts.optJSONObject(i)!=null && hosts.optJSONObject(i).optString("id").equals(existing.optString("id"))) {hosts.put(i,item);replaced=true;break;} if(!replaced)hosts.put(item);store.save(hosts);snapshots.remove(item.getString("id"));errors.remove(item.getString("id")); selected=item.getString("id");page="details";dialog.dismiss();render();refresh();MonitorWidget.schedule(this);MonitorJob.schedule(this);}catch(Exception e){Toast.makeText(this,e.getMessage(),Toast.LENGTH_LONG).show();} })); dialog.show();
     }
-    @Override public void onBackPressed() { if(!page.equals("devices")) {page="devices";render();} else super.onBackPressed(); }
-    final class TrendView extends View { final Float[] values; final Paint paint=new Paint(3); TrendView(ArrayDeque<Float> v){super(MainActivity.this); values=v==null?new Float[0]:v.toArray(new Float[0]);} @Override protected void onDraw(Canvas c){super.onDraw(c);paint.setColor(track);paint.setStrokeWidth(dp(1));for(int i=0;i<3;i++)c.drawLine(0,getHeight()*i/2f,getWidth(),getHeight()*i/2f,paint);if(values.length<2)return;Path path=new Path();for(int i=0;i<values.length;i++){float x=i*(getWidth()-1f)/(values.length-1), y=getHeight()-Math.max(0,Math.min(100,values[i]))*(getHeight()-2)/100f;if(i==0)path.moveTo(x,y);else path.lineTo(x,y);}paint.setColor(blue);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(dp(2));c.drawPath(path,paint);paint.setStyle(Paint.Style.FILL);} }
+
 }

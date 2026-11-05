@@ -21,6 +21,7 @@ type Collector struct {
 	cpuTopology    []cpuPackageTopology
 	hasCPU         bool
 	previousNet    map[string][2]uint64
+	previousDrops  map[string][2]uint64
 	previousIO     [2]uint64
 	lastTime       time.Time
 	disks          []Disk
@@ -30,6 +31,7 @@ type Collector struct {
 	lastGPU        time.Time
 	GPUInterval    time.Duration
 	GPUEnabled     bool
+	diagnostics    diagnosticsCollector
 }
 
 func NewCollector(gpuInterval time.Duration, gpuEnabled bool) *Collector {
@@ -47,7 +49,7 @@ func NewCollector(gpuInterval time.Duration, gpuEnabled bool) *Collector {
 		}
 	}
 	return &Collector{host: Host{ID: fmt.Sprintf("%x", digest[:8]), Name: hostname, OS: osName, Arch: runtime.GOARCH, Kernel: strings.TrimSpace(readFile("/proc/sys/kernel/osrelease"))},
-		previousNet: map[string][2]uint64{}, cpuTopology: parseCPUTopology(readFile("/proc/cpuinfo")), GPUInterval: gpuInterval, GPUEnabled: gpuEnabled, gpus: []GPU{}}
+		previousNet: map[string][2]uint64{}, previousDrops: map[string][2]uint64{}, cpuTopology: parseCPUTopology(readFile("/proc/cpuinfo")), GPUInterval: gpuInterval, GPUEnabled: gpuEnabled, gpus: []GPU{}}
 }
 func readFile(path string) string { b, _ := os.ReadFile(path); return strings.TrimSpace(string(b)) }
 func (c *Collector) Collect(now time.Time, interval float64) Snapshot {
@@ -55,6 +57,7 @@ func (c *Collector) Collect(now time.Time, interval float64) Snapshot {
 	seconds := now.Sub(c.lastTime).Seconds()
 	stat := readFile("/proc/stat")
 	if counter, err := parseCPU(stat); err == nil {
+		s.Processes = c.diagnostics.collectProcesses("/proc", counter.Total)
 		if c.hasCPU {
 			s.CPU.Usage = cpuUsage(c.previousCPU, counter)
 		}
@@ -107,6 +110,13 @@ func (c *Collector) Collect(now time.Time, interval float64) Snapshot {
 		s.Capabilities["disk"] = "unavailable"
 	}
 	s.Network = c.collectNetwork(seconds)
+	s.Services = c.diagnostics.collectServices(now)
+	if c.diagnostics.processes {
+		s.Capabilities["processes"] = "ok"
+	}
+	if len(c.diagnostics.units) > 0 {
+		s.Capabilities["services"] = "ok"
+	}
 	io := collectDiskCounters()
 	if !c.lastTime.IsZero() {
 		s.Network.Read = rate(c.previousIO[0], io[0], seconds)
@@ -171,6 +181,8 @@ func (c *Collector) collectNetwork(seconds float64) Network {
 	n := Network{Interfaces: []NetworkInterface{}}
 	var physicalRX, physicalTX, otherRX, otherTX float64
 	physical, other := 0, 0
+	var physicalPackets, physicalDropped, otherPackets, otherDropped uint64
+	nextDrops := map[string][2]uint64{}
 	for _, line := range strings.Split(readFile("/proc/net/dev"), "\n") {
 		parts := strings.SplitN(line, ":", 2)
 		if len(parts) != 2 {
@@ -191,6 +203,25 @@ func (c *Collector) collectNetwork(seconds float64) Network {
 		}
 		path, _ := filepath.EvalSymlinks("/sys/class/net/" + name)
 		virtual := strings.Contains(path, "/virtual/")
+		if len(f) >= 12 {
+			rp, e1 := strconv.ParseUint(f[1], 10, 64)
+			rd, e2 := strconv.ParseUint(f[3], 10, 64)
+			tp, e3 := strconv.ParseUint(f[9], 10, 64)
+			td, e4 := strconv.ParseUint(f[11], 10, 64)
+			if e1 == nil && e2 == nil && e3 == nil && e4 == nil {
+				packets, dropped := rp+tp, rd+td
+				nextDrops[name] = [2]uint64{packets, dropped}
+				if before, ok := c.previousDrops[name]; ok && packets >= before[0] && dropped >= before[1] {
+					if !virtual {
+						physicalPackets += packets - before[0]
+						physicalDropped += dropped - before[1]
+					} else if !strings.HasPrefix(name, "veth") && !strings.HasPrefix(name, "docker") && !strings.HasPrefix(name, "br-") {
+						otherPackets += packets - before[0]
+						otherDropped += dropped - before[1]
+					}
+				}
+			}
+		}
 		i := NetworkInterface{Name: name, Received: rx, Sent: tx, Virtual: virtual}
 		if previous, ok := c.previousNet[name]; ok {
 			i.Receive = rate(previous[0], rx, seconds)
@@ -213,10 +244,17 @@ func (c *Collector) collectNetwork(seconds float64) Network {
 	if physical > 0 {
 		n.Receive = Number(physicalRX)
 		n.Send = Number(physicalTX)
+		if physicalPackets+physicalDropped > 0 {
+			n.DropPercent = Number(100 * float64(physicalDropped) / float64(physicalPackets+physicalDropped))
+		}
 	} else if other > 0 {
 		n.Receive = Number(otherRX)
 		n.Send = Number(otherTX)
+		if otherPackets+otherDropped > 0 {
+			n.DropPercent = Number(100 * float64(otherDropped) / float64(otherPackets+otherDropped))
+		}
 	}
+	c.previousDrops = nextDrops
 	return n
 }
 func collectDiskCounters() [2]uint64 {
